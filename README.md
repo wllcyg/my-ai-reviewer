@@ -1,6 +1,6 @@
-# My AI Reviewer
+# My Agent Study
 
-基于 **FastAPI** 和 **uv** 构建的 AI 代码审查服务。
+从零开始的 **AI Agent 学习与实战演练** 项目，基于 **FastAPI** 和 **uv** 构建。
 
 ## 快速开始
 
