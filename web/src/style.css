@@ -1,0 +1,106 @@
+:root {
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --bg-page: #f8fafc;
+  --bg-surface: #ffffff;
+  --border-subtle: #e2e8f0;
+  --border-hover: #cbd5e1;
+  --text-heading: #0f172a;
+  --text-body: #475569;
+  --text-muted: #94a3b8;
+  --primary: #0f172a;
+  --primary-hover: #1e293b;
+  --accent: #4f46e5;
+  --radius-xl: 16px;
+  --radius-lg: 12px;
+  --radius-md: 8px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-page);
+  color: var(--text-body);
+  min-height: 100vh;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 精致轻量卡片体系 (Linear / Shadcn 风格) */
+.ui-card {
+  background: #ffffff;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ui-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* 优雅的细滚动条 */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 沉稳状态指示呼吸灯 */
+.status-dot-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  position: relative;
+}
+.status-dot-pulse::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #10b981;
+  animation: pulse-light 2s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
+}
+
+@keyframes pulse-light {
+  0% { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* 律动音波动画 (沉稳中性色) */
+.voice-wave-bar {
+  display: inline-block;
+  width: 2.5px;
+  height: 14px;
+  background: #4f46e5;
+  border-radius: 2px;
+  margin: 0 1.5px;
+  animation: wave-motion 1.2s ease-in-out infinite alternate;
+}
+.voice-wave-bar:nth-child(2) { animation-delay: 0.2s; height: 10px; }
+.voice-wave-bar:nth-child(3) { animation-delay: 0.4s; height: 18px; }
+.voice-wave-bar:nth-child(4) { animation-delay: 0.1s; height: 12px; }
+.voice-wave-bar:nth-child(5) { animation-delay: 0.3s; height: 15px; }
+
+@keyframes wave-motion {
+  0% { transform: scaleY(0.3); }
+  100% { transform: scaleY(1.2); }
+}
