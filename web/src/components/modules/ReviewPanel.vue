@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Code2, Play, Volume2, AlertTriangle, ShieldCheck } from 'lucide-vue-next'
+import { apiUrl } from '@/utils/api'
 
 
 const emit = defineEmits<{
@@ -23,7 +24,7 @@ const reviewReport = ref<any>(null)
 const triggerCodeReview = async () => {
   reviewLoading.value = true
   try {
-    const res = await fetch('/api/review', {
+    const res = await fetch(apiUrl('/api/review'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: codeSnippet.value, language: 'python' })

@@ -15,6 +15,7 @@ import {
   Palette,
   RotateCcw
 } from 'lucide-vue-next'
+import { apiUrl } from '@/utils/api'
 
 interface GeneratedImage {
   id: string
@@ -118,7 +119,7 @@ const generateFluxImage = async () => {
 
   try {
     // 1. 调用后端 MCP 工具获取参数化图片 URL
-    const res = await fetch('/api/mcp/call', {
+    const res = await fetch(apiUrl('/api/mcp/call'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { apiUrl } from '@/utils/api'
 
 const audioCache = new Map<string, ArrayBuffer>()
 let globalAudioElement: HTMLAudioElement | null = null
@@ -26,7 +27,7 @@ export function useAudioEngine() {
     if (audioCache.has(cacheKey)) {
       return audioCache.get(cacheKey)!
     }
-    const streamUrl = `/api/tts/stream?text=${encodeURIComponent(cleanText)}&voice=${voice}&rate=${encodeURIComponent(rate)}&pitch=${encodeURIComponent(pitch)}`
+    const streamUrl = apiUrl(`/api/tts/stream?text=${encodeURIComponent(cleanText)}&voice=${voice}&rate=${encodeURIComponent(rate)}&pitch=${encodeURIComponent(pitch)}`)
     const res = await fetch(streamUrl)
     if (!res.ok) throw new Error('语音合成网络连接异常')
     const buf = await res.arrayBuffer()
@@ -48,7 +49,7 @@ export function useAudioEngine() {
     stopAudio()
     isAudioPlaying.value = true
 
-    const streamUrl = `/api/tts/stream?text=${encodeURIComponent(cleanText)}&voice=${voice}&rate=${encodeURIComponent(rate)}&pitch=${encodeURIComponent(pitch)}`
+    const streamUrl = apiUrl(`/api/tts/stream?text=${encodeURIComponent(cleanText)}&voice=${voice}&rate=${encodeURIComponent(rate)}&pitch=${encodeURIComponent(pitch)}`)
     globalAudioElement = new Audio(streamUrl)
 
     // 后台预热缓存

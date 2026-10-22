@@ -1,4 +1,5 @@
 import { ref, onMounted, onUnmounted } from 'vue'
+import { apiUrl } from '@/utils/api'
 
 export interface ServerStatus {
   connected: boolean
@@ -13,7 +14,7 @@ export function useServerStatus() {
   const checkHealth = async () => {
     const startTime = Date.now()
     try {
-      const res = await fetch('/health')
+      const res = await fetch(apiUrl('/health'))
       if (res.ok) {
         const data = await res.json()
         status.value = {

@@ -15,6 +15,7 @@ import {
   getAudioContext,
   exportAndDownloadAudio
 } from '@/utils/audioMerger'
+import { apiUrl } from '@/utils/api'
 
 const props = defineProps<{
   computedRate: string
@@ -98,7 +99,7 @@ const downloadSubtitle = async () => {
   const baseName = `subtitles_${meta.name}_${Date.now()}.srt`
 
   try {
-    const url = `/api/tts/subtitles?text=${encodeURIComponent(ttsText.value)}&voice=${ttsVoice.value}&rate=${encodeURIComponent(props.computedRate)}&pitch=${encodeURIComponent(props.computedPitch)}&download=true`
+    const url = apiUrl(`/api/tts/subtitles?text=${encodeURIComponent(ttsText.value)}&voice=${ttsVoice.value}&rate=${encodeURIComponent(props.computedRate)}&pitch=${encodeURIComponent(props.computedPitch)}&download=true`)
     const res = await fetch(url)
     if (!res.ok) throw new Error('字幕生成异常')
     const blob = await res.blob()
@@ -123,7 +124,7 @@ const callMcp = async () => {
   ttsResult.value = null
   hasPlayedFinished.value = false
   try {
-    const res = await fetch('/api/mcp/call', {
+    const res = await fetch(apiUrl('/api/mcp/call'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

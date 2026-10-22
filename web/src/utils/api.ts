@@ -1,8 +1,9 @@
 /**
  * 统一后端 API 地址生成工具
- * 支持读取环境变量 VITE_API_BASE_URL，若未配置则回退到相对路径（配合 Cloudflare Pages _redirects 转发）
+ * 在开发环境默认走 Vite 代理，在生产环境默认直连独立后端域名 https://api-ai.cheatppf.xyz
  */
-const rawBase = (import.meta.env.VITE_API_BASE_URL as string) || ''
+const envBase = (import.meta.env.VITE_API_BASE_URL as string) || ''
+const rawBase = envBase || (import.meta.env.PROD ? 'https://api-ai.cheatppf.xyz' : '')
 export const API_BASE_URL = rawBase.replace(/\/+$/, '')
 
 export function apiUrl(path: string): string {

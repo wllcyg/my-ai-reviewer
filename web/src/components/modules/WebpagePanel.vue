@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Globe, RefreshCw } from 'lucide-vue-next'
+import { apiUrl } from '@/utils/api'
 
 const webpageUrl = ref('https://news.ycombinator.com')
 const webpageContent = ref('')
@@ -11,7 +12,7 @@ const triggerFetchWebpage = async () => {
   webpageLoading.value = true
   webpageContent.value = ''
   try {
-    const res = await fetch('/api/mcp/call', {
+    const res = await fetch(apiUrl('/api/mcp/call'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

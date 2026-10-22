@@ -17,6 +17,7 @@ import {
   Sparkles,
   ArrowRight
 } from 'lucide-vue-next'
+import { apiUrl } from '@/utils/api'
 
 interface SearchItem {
   title: string
@@ -103,7 +104,7 @@ const triggerSearch = async (overrideQuery?: string) => {
   saveHistory(clean)
 
   try {
-    const res = await fetch('/api/mcp/call', {
+    const res = await fetch(apiUrl('/api/mcp/call'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -174,7 +175,7 @@ const openWebpageReader = async (item: SearchItem) => {
   readerLoading.value = true
 
   try {
-    const res = await fetch('/api/mcp/call', {
+    const res = await fetch(apiUrl('/api/mcp/call'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -215,7 +216,7 @@ const toggleVoiceRead = (item: SearchItem) => {
 
   // 拼接清晰的朗读文本
   const textToRead = `标题：${item.title}。摘要内容：${item.body}`
-  const streamUrl = `/api/tts/stream?text=${encodeURIComponent(textToRead)}&voice=zh-CN-XiaoxiaoNeural`
+  const streamUrl = apiUrl(`/api/tts/stream?text=${encodeURIComponent(textToRead)}&voice=zh-CN-XiaoxiaoNeural`)
 
   audioPlayer = new Audio(streamUrl)
   audioPlayer.onended = () => {

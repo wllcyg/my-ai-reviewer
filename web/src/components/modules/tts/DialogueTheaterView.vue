@@ -22,6 +22,7 @@ import {
   concatAudioBuffers,
   exportAndDownloadAudio
 } from '@/utils/audioMerger'
+import { apiUrl } from '@/utils/api'
 
 const props = defineProps<{
   computedRate: string
@@ -177,7 +178,7 @@ const playSingleTurn = (index: number) => {
 
   const rate = getItemRate(item)
   const pitch = getItemPitch(item)
-  const streamUrl = `/api/tts/stream?text=${encodeURIComponent(item.text)}&voice=${item.voice}&rate=${encodeURIComponent(rate)}&pitch=${encodeURIComponent(pitch)}`
+  const streamUrl = apiUrl(`/api/tts/stream?text=${encodeURIComponent(item.text)}&voice=${item.voice}&rate=${encodeURIComponent(rate)}&pitch=${encodeURIComponent(pitch)}`)
   theaterAudio = new Audio(streamUrl)
 
   fetchAudioBuffer(item.text, item.voice, rate, pitch).catch(() => {})
@@ -213,7 +214,7 @@ const playAllDialogue = async () => {
     const pitch = getItemPitch(item)
 
     const success = await new Promise<boolean>((resolve) => {
-      const streamUrl = `/api/tts/stream?text=${encodeURIComponent(item.text)}&voice=${item.voice}&rate=${encodeURIComponent(rate)}&pitch=${encodeURIComponent(pitch)}`
+      const streamUrl = apiUrl(`/api/tts/stream?text=${encodeURIComponent(item.text)}&voice=${item.voice}&rate=${encodeURIComponent(rate)}&pitch=${encodeURIComponent(pitch)}`)
       theaterAudio = new Audio(streamUrl)
 
       fetchAudioBuffer(item.text, item.voice, rate, pitch).catch(() => {})
@@ -346,7 +347,7 @@ const downloadDialogueSubtitles = async () => {
       pause_seconds: 0.38
     }
 
-    const res = await fetch('/api/tts/dialogue_subtitles?download=true', {
+    const res = await fetch(apiUrl('/api/tts/dialogue_subtitles?download=true'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)

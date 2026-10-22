@@ -12,6 +12,7 @@ import {
   ArrowRight,
   MessageSquare
 } from 'lucide-vue-next'
+import { apiUrl } from '@/utils/api'
 
 interface NewsItem {
   id?: number
@@ -42,7 +43,7 @@ const fetchNews = async () => {
   newsLoading.value = true
   errorMessage.value = ''
   try {
-    const res = await fetch('/api/mcp/call', {
+    const res = await fetch(apiUrl('/api/mcp/call'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -97,7 +98,7 @@ const openReader = async (item: NewsItem) => {
   readerLoading.value = true
 
   try {
-    const res = await fetch('/api/mcp/call', {
+    const res = await fetch(apiUrl('/api/mcp/call'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
