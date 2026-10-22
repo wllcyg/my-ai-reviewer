@@ -14,13 +14,14 @@ const routes: RouteRecordRaw[] = [
       group: 'tools'
     }
   },
+  // 隐藏预留路由，需要时随时直接访问 URL 直达
   {
     path: '/image',
     name: 'Image',
     component: () => import('@/components/modules/ImagePanel.vue'),
     meta: {
       title: 'FLUX 极速生图',
-      group: 'tools'
+      group: 'hidden'
     }
   },
   {

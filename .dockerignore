@@ -1,0 +1,26 @@
+# 忽略前端工程文件（前端独立部署至 Cloudflare Pages）
+web/
+
+# 忽略本地虚拟环境与 Python 缓存
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 忽略 Git 与 IDE 配置
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# 忽略文档与测试脚本
+docs/
+*.md
+!README.md
+
+# 忽略运行时临时产物
+*.log
+02_mcp/output/*
+!02_mcp/output/.gitkeep

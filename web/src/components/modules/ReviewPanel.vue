@@ -47,7 +47,7 @@ const handleReadSummary = () => {
   <div class="space-y-6">
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <!-- 源码编辑卡片 -->
-      <div class="ui-card p-5 flex flex-col">
+      <div class="ui-card p-4 sm:p-5 flex flex-col">
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center space-x-2">
             <Code2 class="w-4 h-4 text-slate-700" />

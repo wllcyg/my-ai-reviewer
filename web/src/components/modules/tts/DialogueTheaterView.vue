@@ -87,10 +87,6 @@ const getItemPitch = (item: DialogueItem): string => {
   return props.computedPitch
 }
 
-const addDialogueBreak = (item: DialogueItem, ms: number) => {
-  item.text += ` <break time="${ms}ms" /> `
-}
-
 const isPlayingAll = ref(false)
 const activePlayingIndex = ref(-1)
 const isMerging = ref(false)
@@ -394,13 +390,13 @@ const exportEachAudio = () => {
         <span>支持<b>每位角色独立声学调音</b>，连播完成后可<b>一键导出整段音频与无缝对齐 SRT 字幕</b>。</span>
       </div>
 
-      <div class="flex items-center space-x-2 flex-wrap gap-2">
+      <div class="w-full sm:w-auto grid grid-cols-1 sm:flex sm:items-center gap-2">
         <!-- 杀手锏 1: 导出全剧时间轴字幕 (SRT) -->
         <button
           type="button"
           @click="downloadDialogueSubtitles"
           :disabled="isExportingDialogueSrt || dialogueList.length === 0"
-          class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-medium shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+          class="inline-flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-medium shadow-2xs transition-all cursor-pointer disabled:opacity-50"
           title="毫秒级时间戳无缝对齐整场对话，导入剪辑软件分秒不差"
         >
           <RefreshCw v-if="isExportingDialogueSrt" class="w-3.5 h-3.5 animate-spin" />
@@ -414,7 +410,7 @@ const exportEachAudio = () => {
           v-if="!isPlayingAll"
           @click="playAllDialogue"
           :disabled="dialogueList.length === 0"
-          class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-medium shadow-xs transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
+          class="inline-flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-medium shadow-xs transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
         >
           <Play class="w-3.5 h-3.5" />
           <span>连播整场对话</span>
@@ -423,7 +419,7 @@ const exportEachAudio = () => {
           type="button"
           v-else
           @click="stopTheaterAudio"
-          class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 text-xs font-medium shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+          class="inline-flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 text-xs font-medium shadow-xs transition-all active:scale-[0.98] cursor-pointer"
         >
           <Square class="w-3.5 h-3.5" />
           <span>停止连播</span>
@@ -439,13 +435,13 @@ const exportEachAudio = () => {
               ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs cursor-pointer'
               : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
           ]"
-          class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+          class="inline-flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
           :title="!hasDialogueFinished ? '提示：请完整连播整场对话后方可合并下载' : '将所有台词合并导出'"
         >
           <RefreshCw v-if="isMerging" class="w-3.5 h-3.5 animate-spin" />
           <CheckCircle2 v-else-if="hasDialogueFinished" class="w-3.5 h-3.5" />
           <Lock v-else class="w-3.5 h-3.5" />
-          <span>{{ isMerging ? '合并中...' : (isPlayingAll ? '连播中，完成后可下载' : (hasDialogueFinished ? `合并下载音频 (${exportFormat.toUpperCase()})` : '需连播后合并下载')) }}</span>
+          <span>{{ isMerging ? '合并中...' : (isPlayingAll ? '连播中...' : (hasDialogueFinished ? `合并下载 (${exportFormat.toUpperCase()})` : '需连播后合并')) }}</span>
         </button>
       </div>
     </div>
@@ -462,7 +458,7 @@ const exportEachAudio = () => {
         v-for="(item, idx) in dialogueList"
         :key="item.id"
         :class="[
-          'p-4 rounded-xl border transition-all duration-200 bg-white relative',
+          'p-3.5 sm:p-4 rounded-xl border transition-all duration-200 bg-white relative',
           activePlayingIndex === idx
             ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/20 shadow-xs'
             : 'border-slate-200 hover:border-slate-300'
@@ -665,33 +661,15 @@ const exportEachAudio = () => {
           </div>
         </div>
 
-        <!-- 台词输入框 (支持快捷插入停顿) -->
+        <!-- 台词输入框 -->
         <div class="relative">
           <textarea
             v-model="item.text"
             rows="2"
             class="w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:border-indigo-500 transition-all leading-relaxed font-mono"
-            placeholder="输入该角色的台词，可写自然语言或 SSML 停顿..."
+            placeholder="输入该角色的台词内容..."
           ></textarea>
-          <div class="flex items-center justify-between text-[10px] text-slate-400 mt-0.5 px-1">
-            <div class="flex items-center space-x-1.5">
-              <span>插入停顿:</span>
-              <button
-                type="button"
-                @click="addDialogueBreak(item, 400)"
-                class="text-indigo-600 hover:underline cursor-pointer"
-              >
-                +0.4s呼吸
-              </button>
-              <span>·</span>
-              <button
-                type="button"
-                @click="addDialogueBreak(item, 800)"
-                class="text-indigo-600 hover:underline cursor-pointer"
-              >
-                +0.8s长停顿
-              </button>
-            </div>
+          <div class="flex items-center justify-end text-[10px] text-slate-400 mt-0.5 px-1">
             <span>{{ item.text.length }} 字</span>
           </div>
         </div>

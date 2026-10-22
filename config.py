@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_name: str = "My Agent Study"
     app_env: str = "development"
     debug: bool = True
+    host: str = "0.0.0.0"
     port: int = 8000
 
     # 模型配置

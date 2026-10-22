@@ -420,7 +420,7 @@ async def review_code_endpoint(req: ReviewRequest):
 
 
 def main():
-    uvicorn.run("main:app", host="127.0.0.1", port=settings.port, reload=settings.debug)
+    uvicorn.run("main:app", host=settings.host, port=settings.port, reload=settings.debug)
 
 
 if __name__ == "__main__":

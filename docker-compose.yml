@@ -1,0 +1,17 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: overseas-freehub-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # 持久化输出生成的临时文件（如导出的合并音频等）
+      - ./02_mcp/output:/app/02_mcp/output
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
