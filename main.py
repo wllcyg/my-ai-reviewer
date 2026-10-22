@@ -3,7 +3,7 @@ from fastapi import FastAPI, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from config import Settings, get_settings
 
 # 动态加载以数字开头的 02_mcp 模块
@@ -58,20 +58,28 @@ def health_check():
 
 
 # ==========================================
-# 流式语音输出 (零落盘、低延迟、首包毫秒级直推)
-# 前端可直接使用: <audio src="/api/tts/stream?text=...&voice=..." controls autoplay />
+# 流式语音输出 (零落盘、低延迟、首包毫秒级直推，同时支持 GET 与 POST 以突破长文本 URL 长度限制)
 # ==========================================
-@app.get("/api/tts/stream")
-async def stream_tts(
-    text: str = Query(..., description="需要合成的文本内容"),
-    voice: str = Query("zh-CN-XiaoxiaoNeural", description="音色名称"),
-    rate: str = Query("+0%", description="语速调节 (如 +20%, -15%)"),
-    pitch: str = Query("+0Hz", description="音调调节 (如 +15Hz, -20Hz)"),
-    volume: str = Query("+0%", description="音量调节 (如 +0%)"),
-    download: bool = Query(False, description="是否作为附件强制下载"),
-    filename: str = Query(None, description="自定义下载文件名 (如 speech.mp3)")
+class TTSStreamRequest(BaseModel):
+    text: str
+    voice: str = "zh-CN-XiaoxiaoNeural"
+    rate: str = "+0%"
+    pitch: str = "+0Hz"
+    volume: str = "+0%"
+    download: bool = False
+    filename: Optional[str] = None
+
+
+def _build_tts_stream_response(
+    text: str,
+    voice: str = "zh-CN-XiaoxiaoNeural",
+    rate: str = "+0%",
+    pitch: str = "+0Hz",
+    volume: str = "+0%",
+    download: bool = False,
+    filename: Optional[str] = None
 ):
-    """音频二进制流式直推：不写磁盘，直接将微软音频流作为 chunk 推流给前端"""
+    """音频二进制流式直推通用实现：不写磁盘，直接将微软音频流作为 chunk 推流给前端"""
     import os
     import urllib.parse
     import edge_tts
@@ -144,8 +152,42 @@ async def stream_tts(
     )
 
 
+@app.get("/api/tts/stream")
+async def stream_tts_get(
+    text: str = Query(..., description="需要合成的文本内容"),
+    voice: str = Query("zh-CN-XiaoxiaoNeural", description="音色名称"),
+    rate: str = Query("+0%", description="语速调节 (如 +20%, -15%)"),
+    pitch: str = Query("+0Hz", description="音调调节 (如 +15Hz, -20Hz)"),
+    volume: str = Query("+0%", description="音量调节 (如 +0%)"),
+    download: bool = Query(False, description="是否作为附件强制下载"),
+    filename: Optional[str] = Query(None, description="自定义下载文件名 (如 speech.mp3)")
+):
+    return _build_tts_stream_response(
+        text=text,
+        voice=voice,
+        rate=rate,
+        pitch=pitch,
+        volume=volume,
+        download=download,
+        filename=filename
+    )
+
+
+@app.post("/api/tts/stream")
+async def stream_tts_post(req: TTSStreamRequest):
+    return _build_tts_stream_response(
+        text=req.text,
+        voice=req.voice,
+        rate=req.rate,
+        pitch=req.pitch,
+        volume=req.volume,
+        download=req.download,
+        filename=req.filename
+    )
+
+
 # ==========================================
-# 自动字幕生成端点 (支持标准 SRT 格式导出)
+# 自动字幕生成端点 (支持标准 SRT 格式导出，同时支持 GET 与 POST)
 # ==========================================
 import re
 import datetime
@@ -172,16 +214,24 @@ def delta_to_srt_time(td: datetime.timedelta) -> str:
     milliseconds = int(td.microseconds / 1000)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
 
-@app.get("/api/tts/subtitles")
-async def get_tts_subtitles(
-    text: str = Query(..., description="文本内容"),
-    voice: str = Query("zh-CN-XiaoxiaoNeural", description="音色名称"),
-    rate: str = Query("+0%", description="语速调节"),
-    pitch: str = Query("+0Hz", description="音调调节"),
-    boundary: str = Query("SentenceBoundary", description="边界模式: SentenceBoundary 或 WordBoundary"),
-    download: bool = Query(False, description="是否作为附件下载")
+
+class TTSSubtitlesRequest(BaseModel):
+    text: str
+    voice: str = "zh-CN-XiaoxiaoNeural"
+    rate: str = "+0%"
+    pitch: str = "+0Hz"
+    boundary: str = "SentenceBoundary"
+    download: bool = False
+
+
+async def _build_tts_subtitles_response(
+    text: str,
+    voice: str = "zh-CN-XiaoxiaoNeural",
+    rate: str = "+0%",
+    pitch: str = "+0Hz",
+    boundary: str = "SentenceBoundary",
+    download: bool = False
 ):
-    """提取微软语音毫秒级时间戳并生成标准 SRT 格式字幕"""
     import os
     import edge_tts
 
@@ -234,6 +284,37 @@ async def get_tts_subtitles(
         headers["Content-Disposition"] = 'attachment; filename="subtitles.srt"; filename*=UTF-8\'\'subtitles.srt'
     
     return PlainTextResponse(srt_content, headers=headers, media_type="text/plain; charset=utf-8")
+
+
+@app.get("/api/tts/subtitles")
+async def get_tts_subtitles_get(
+    text: str = Query(..., description="文本内容"),
+    voice: str = Query("zh-CN-XiaoxiaoNeural", description="音色名称"),
+    rate: str = Query("+0%", description="语速调节"),
+    pitch: str = Query("+0Hz", description="音调调节"),
+    boundary: str = Query("SentenceBoundary", description="边界模式: SentenceBoundary 或 WordBoundary"),
+    download: bool = Query(False, description="是否作为附件下载")
+):
+    return await _build_tts_subtitles_response(
+        text=text,
+        voice=voice,
+        rate=rate,
+        pitch=pitch,
+        boundary=boundary,
+        download=download
+    )
+
+
+@app.post("/api/tts/subtitles")
+async def get_tts_subtitles_post(req: TTSSubtitlesRequest):
+    return await _build_tts_subtitles_response(
+        text=req.text,
+        voice=req.voice,
+        rate=req.rate,
+        pitch=req.pitch,
+        boundary=req.boundary,
+        download=req.download
+    )
 
 
 class DialogueSubtitleItem(BaseModel):

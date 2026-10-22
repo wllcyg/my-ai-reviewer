@@ -6,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 import edge_tts
 
 # 单次 MCP 交互最大安全字符限制（防止打爆内存与大模型上下文窗口）
-MAX_MCP_TEXT_LENGTH = 1000
+MAX_MCP_TEXT_LENGTH = 3000
 
 
 async def tts_synthesize(
@@ -20,7 +20,7 @@ async def tts_synthesize(
     """使用微软高拟真人声合成音频 (纯内存处理，0 磁盘占用，支持语速/音高精准调谐)。
     
     Args:
-        text: 需要转为语音的文本内容 (单次上限 1000 字)
+        text: 需要转为语音的文本内容 (单次上限 3000 字)
         voice: 声音音色，推荐:
                - 'zh-CN-XiaoxiaoNeural' (温柔女声，默认)
                - 'zh-CN-YunxiNeural' (阳光男声/影视解说)
