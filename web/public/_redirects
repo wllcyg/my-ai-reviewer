@@ -1,13 +1,10 @@
 # ==============================================================
-# Cloudflare Pages 边缘重定向与代理规则
+# Cloudflare Pages 边缘反向代理与 SPA 路由规则
 # ==============================================================
 
-# 1. 后端接口反向代理（可选，推荐）
-# 说明：若将下面注释解开并替换为您的后端服务器真实公网 IP 或域名，
-# 即可通过 Cloudflare 全球 CDN 边缘转发，彻底避免浏览器的 HTTPS 混杂内容 (Mixed Content) 及跨域 (CORS) 限制！
-# /api/*  http://<YOUR_BACKEND_IP>:8000/api/:splat  200
-# /health http://<YOUR_BACKEND_IP>:8000/health  200
+# 1. 后端 API 边缘代理转发至独立域名后端（零跨域、隐藏源站 IP）
+/api/*  https://api-ai.cheatppf.xyz/api/:splat  200
+/health https://api-ai.cheatppf.xyz/health  200
 
-# 2. Vue Router SPA 单页应用客户端路由回滚规则（必需）
-# 解决用户在浏览器直接访问/刷新 /search, /news, /tts 等子页面报 404 的问题
+# 2. Vue Router SPA 客户端单页路由回滚规则（防刷新 404）
 /*  /index.html  200
