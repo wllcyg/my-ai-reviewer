@@ -71,15 +71,20 @@ const menuGroups = [
       'h-screen bg-white border-r border-slate-200/80 flex flex-col justify-between transition-all duration-300 z-50 select-none shrink-0',
       // 桌面端布局: sticky 驻留顶部
       'md:sticky md:top-0',
-      isCollapsed ? 'md:w-18' : 'md:w-60',
+      isCollapsed ? 'w-16' : 'w-64 md:w-60',
       // 移动端布局: fixed 侧滑抽屉
-      'fixed inset-y-0 left-0 w-64 md:translate-x-0',
+      'fixed inset-y-0 left-0 md:translate-x-0',
       mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
     ]"
   >
     <!-- 顶部 Logo 栏 -->
     <div>
-      <div class="h-15 border-b border-slate-200/80 flex items-center px-4.5 justify-between">
+      <div
+        :class="[
+          'h-15 border-b border-slate-200/80 flex items-center transition-all duration-300',
+          isCollapsed ? 'justify-center px-0' : 'px-4.5 justify-between'
+        ]"
+      >
         <div class="flex items-center space-x-3 overflow-hidden">
           <div class="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center shadow-xs shrink-0">
             <Terminal class="w-4 h-4" />
