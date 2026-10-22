@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { Menu, RefreshCw, Server, AlertCircle, CheckCircle2, ChevronDown } from 'lucide-vue-next'
+import { Menu, RefreshCw, Server, AlertCircle, ChevronDown } from 'lucide-vue-next'
 import { useServerStatus } from '@/composables/useServerStatus'
 import Sidebar from '@/components/layout/Sidebar.vue'
 import Footer from '@/components/layout/Footer.vue'
