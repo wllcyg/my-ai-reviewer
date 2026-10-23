@@ -1,5 +1,6 @@
 ## MCP 学习
-
+今天开始学习关于mcp相关得,虽然有人说他快过时了
+![image](https://api.cheatppf.xyz/i/2go5en067dn-icejdd.png)
 ### MCP 是什么
 
 MCP 的全称是 Model Context Protocol(模型上下文协议),是目前主流的开放通信协议,统一了 Agent 调用外部工具和数据源的规范。除了工具(Tools),它还支持资源(Resources)和提示词模板(Prompts),本文只讲最常用的工具部分。
@@ -152,3 +153,24 @@ MCP 的消息格式是 JSON-RPC 2.0,目前支持两种传输方式:
 - 架构上分为 Host、Client、Server 三个角色。
 - 工具用 JSON Schema 描述,消息格式为 JSON-RPC 2.0,传输方式有 stdio(本地)和 Streamable HTTP(服务化部署)。
 - 大模型靠工具描述决定是否调用,所以描述要写得清楚、具体,并通过真实提问持续迭代。
+
+---
+
+### 线上 MCP 服务地址
+
+- **服务名称**: `OverseasFreeHub`
+- **MCP SSE 端点**: `https://api-ai.cheatppf.xyz/mcp/sse`
+
+#### 客户端配置示例
+
+```json
+{
+  "mcpServers": {
+    "overseas-free-hub": {
+      "serverUrl": "https://api-ai.cheatppf.xyz/mcp/sse"
+    }
+  }
+}
+```
+*(注: Cursor / Claude Desktop 等客户端中将 `serverUrl` 改为 `url` 即可)*
+
