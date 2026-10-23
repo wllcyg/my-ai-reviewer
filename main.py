@@ -27,9 +27,92 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ==========================================
+# 0. 客户端 IP 防轰炸限流中间件 (Rate Limiter)
+# ==========================================
+import time
+from collections import defaultdict, deque
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """
+    轻量滑动窗口限流器：
+    - 单 IP 每秒最多 5 次请求 (防止高并发暴力轰炸)
+    - 单 IP 每分钟最多 60 次请求 (防止脚本死循环刷爆免费额度)
+    - 兼容 Cloudflare CDN 真实真实客户端 IP (CF-Connecting-IP)
+    """
+    def __init__(self, app, max_per_second: int = 5, max_per_minute: int = 60):
+        super().__init__(app)
+        self.max_per_second = max_per_second
+        self.max_per_minute = max_per_minute
+        # 记录每个 IP 的请求时间戳队列 (自动淘汰)
+        self.requests_sec: dict[str, deque] = defaultdict(deque)
+        self.requests_min: dict[str, deque] = defaultdict(deque)
+
+    def _get_client_ip(self, request: Request) -> str:
+        # 优先读取 Cloudflare 真实访问者 IP
+        cf_ip = request.headers.get("cf-connecting-ip")
+        if cf_ip:
+            return cf_ip.strip()
+        # 其次读取 X-Forwarded-For 的首个 IP
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip()
+        # 兜底读取直连 IP
+        return request.client.host if request.client else "unknown"
+
+    async def dispatch(self, request: Request, call_next):
+        # 对轻量健康检查探针豁免，避免平台探活误报
+        if request.url.path in ("/health", "/"):
+            return await call_next(request)
+
+        now = time.time()
+        client_ip = self._get_client_ip(request)
+
+        # 1. 检查秒级滑动窗口 (防瞬间死循环轰炸)
+        q_sec = self.requests_sec[client_ip]
+        while q_sec and now - q_sec[0] > 1.0:
+            q_sec.popleft()
+        if len(q_sec) >= self.max_per_second:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "请求过于频繁，触发秒级频率保护，请稍候再试。",
+                    "retry_after_seconds": 1
+                },
+                headers={"Retry-After": "1"}
+            )
+
+        # 2. 检查分钟级滑动窗口 (防持续刷量)
+        q_min = self.requests_min[client_ip]
+        while q_min and now - q_min[0] > 60.0:
+            q_min.popleft()
+        if len(q_min) >= self.max_per_minute:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "接口调用频次超出限制 (每分钟最多60次)，请1分钟后再试。",
+                    "retry_after_seconds": 60
+                },
+                headers={"Retry-After": "60"}
+            )
+
+        # 记录本次请求
+        q_sec.append(now)
+        q_min.append(now)
+
+        return await call_next(request)
+
+# 挂载限流中间件
+app.add_middleware(RateLimitMiddleware, max_per_second=5, max_per_minute=60)
+
 # 挂载 MCP 服务的 SSE 传输通道到 /mcp
 # 注意：无需重复传 mount_path，Starlette ASGI 挂载机制会自动注入 root_path 前缀
 app.mount("/mcp", mcp_server.sse_app())
+
 
 
 

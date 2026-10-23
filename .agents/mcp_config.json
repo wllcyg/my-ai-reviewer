@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "overseas-free-hub": {
+      "serverUrl": "https://api-ai.cheatppf.xyz/mcp/sse"
+    }
+  }
+}
