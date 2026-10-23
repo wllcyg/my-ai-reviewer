@@ -460,6 +460,35 @@ async def call_tool_endpoint(req: ToolCallRequest):
 
 
 # ==========================================
+# 天气服务专属接口 (支持前端高颜值可视化直连)
+# ==========================================
+@app.get("/api/weather")
+async def get_weather_endpoint(
+    location: str = Query("北京", description="城市或地点名称"),
+    days: int = Query(7, description="预报天数 (1~7)")
+):
+    """获取指定城市的完整结构化天气数据与逐日预报"""
+    tools_mod = importlib.import_module("02_mcp.tools")
+    return await tools_mod.get_weather_details(location=location, days=days)
+
+
+@app.get("/api/weather/search")
+async def search_location_endpoint(
+    name: str = Query(..., description="地名"),
+    count: int = Query(5, description="候选数量 (1~10)")
+):
+    """地名联想与消歧候选查询"""
+    import json
+    tools_mod = importlib.import_module("02_mcp.tools")
+    raw = await tools_mod.search_location(name=name, count=count)
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {"result": raw}
+
+
+
+# ==========================================
 # AI 代码审查分析端点
 # ==========================================
 class ReviewRequest(BaseModel):

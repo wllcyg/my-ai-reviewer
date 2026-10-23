@@ -4,12 +4,13 @@ import { useRoute } from 'vue-router'
 import {
   Mic,
   Search,
+  CloudSun,
   Flame,
-  Terminal,
   ChevronLeft,
   ChevronRight,
   X
 } from 'lucide-vue-next'
+
 
 import type { ServerStatus } from '@/composables/useServerStatus'
 
@@ -37,7 +38,8 @@ const menuGroups = [
     groupTitle: '核心工具矩阵',
     items: [
       { path: '/tts', name: '微软 Edge-TTS', icon: Mic, badge: '免Key' },
-      { path: '/search', name: '免翻智能搜索', icon: Search, badge: '无广告' }
+      { path: '/search', name: '免翻智能搜索', icon: Search, badge: '无广告' },
+      { path: '/weather', name: '全球实时气象', icon: CloudSun, badge: '免Key' }
     ]
   },
   {
@@ -48,6 +50,7 @@ const menuGroups = [
   }
 ]
 </script>
+
 
 <template>
   <!-- 移动端全屏半透明遮罩蒙层 (只在小屏且抽屉打开时显示) -->
@@ -86,10 +89,11 @@ const menuGroups = [
         ]"
       >
         <div class="flex items-center space-x-3 overflow-hidden">
-          <div class="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center shadow-xs shrink-0">
-            <Terminal class="w-4 h-4" />
+          <div class="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center shadow-xs shrink-0 bg-slate-900 border border-slate-800">
+            <img src="/favicon.svg" alt="AI Hub Logo" class="w-full h-full object-contain" />
           </div>
           <div v-if="!isCollapsed || mobileOpen" class="overflow-hidden whitespace-nowrap">
+
             <div class="font-semibold text-sm text-slate-900 tracking-tight leading-tight">AI Hub Studio</div>
             <div class="text-[10px] text-slate-400 font-mono">v0.1.0 · FastMCP</div>
           </div>

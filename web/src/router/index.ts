@@ -42,6 +42,16 @@ const routes: RouteRecordRaw[] = [
       group: 'intel'
     }
   },
+  {
+    path: '/weather',
+    name: 'Weather',
+    component: () => import('@/components/modules/WeatherPanel.vue'),
+    meta: {
+      title: '全球实时气象',
+      group: 'tools'
+    }
+  },
+
   // 隐藏预留路由，需要时随时直接访问 URL 直达
   {
     path: '/review',

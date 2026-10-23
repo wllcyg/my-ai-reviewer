@@ -2,7 +2,22 @@
 本地直接测试 02_mcp 里的各个工具逻辑，不需要启动 MCP 客户端即可单测验证。
 """
 import asyncio
-from tools import tts_synthesize, web_search, fetch_webpage, generate_image, get_tech_news
+import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
+from tools import (
+    tts_synthesize,
+    web_search,
+    fetch_webpage,
+    generate_image,
+    get_tech_news,
+    search_location,
+    get_weather
+)
 
 
 async def main():
@@ -31,5 +46,12 @@ async def main():
     tts_res = await tts_synthesize("你好，海外零元能力 MCP 服务已成功部署！", voice="zh-CN-XiaoxiaoNeural")
     print(tts_res + "\n")
 
+    print("=" * 60)
+    print("6. 测试 Open-Meteo 天气预报能力:")
+    weather_res = await get_weather("北京", days=1)
+    print(weather_res + "\n")
+
+
 if __name__ == "__main__":
     asyncio.run(main())
+

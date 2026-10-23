@@ -6,7 +6,11 @@
 import os
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
-from .tools import register_all_tools
+try:
+    from .tools import register_all_tools
+except ImportError:
+    from tools import register_all_tools
+
 
 # 实例化 FastMCP 服务
 mcp = FastMCP("OverseasFreeHub", dependencies=["edge-tts", "duckduckgo-search", "httpx"])
