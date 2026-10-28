@@ -8,8 +8,10 @@ import axios from 'axios'
 
 /* 判断IP是不是内网 */
 function isLAN(ip: string) {
-  ip.toLowerCase()
-  if (ip === 'localhost')
+  if (!ip)
+    return false
+  ip = ip.toLowerCase()
+  if (ip === 'localhost' || ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')
     return true
   let a_ip = 0
   if (ip === '')

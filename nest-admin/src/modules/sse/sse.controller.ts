@@ -8,6 +8,7 @@ import { interval, Observable } from 'rxjs'
 import { ApiSecurityAuth } from '~/common/decorators/swagger.decorator'
 
 import { OnlineService } from '../system/online/online.service'
+import { getIp } from '~/utils/ip.util'
 import { MessageEvent, SseService } from './sse.service'
 
 @ApiTags('System - sse模块')
@@ -45,7 +46,8 @@ export class SseController implements BeforeApplicationShutdown {
     @Headers('user-agent') ua: string,
   ): Promise<Observable<MessageEvent>> {
     this.replyMap.set(uid, res)
-    this.onlineService.addOnlineUser(req.accessToken, ip, ua)
+    const clientIp = getIp(req) || ip || '127.0.0.1'
+    this.onlineService.addOnlineUser(req.accessToken, clientIp, ua)
 
     return new Observable((subscriber) => {
       // 定时推送，保持连接
