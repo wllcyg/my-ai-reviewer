@@ -1,0 +1,14 @@
+name: Daily Curl Request
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+
+jobs:
+  run-curl:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run Curl Request
+        # 访问当前公开 API，避免演示实例长时间无请求后休眠。
+        run: curl https://nest-admin-api.pages.dev

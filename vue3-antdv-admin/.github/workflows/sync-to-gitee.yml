@@ -1,0 +1,84 @@
+name: Sync To Gitee
+env:
+  # 7 GiB by default on GitHub, setting to 6 GiB
+  # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources
+  NODE_OPTIONS: --max-old-space-size=6144
+on:
+  push:
+    branches: [main]
+
+# Ensures that only one mirror task will run at a time.
+concurrency:
+  group: repo-sync
+  cancel-in-progress: true
+
+jobs:
+  repo-sync:
+    runs-on: ubuntu-latest
+    # peaceiris 用 GITHUB_TOKEN 推送 gh-pages 需要 contents 写权限。
+    # 仓库 Settings → Actions → General → Workflow permissions 须为 Read and write，否则该声明会被限制为只读。
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # 设置服务器时区为东八区
+      - name: Set time zone
+        run: sudo timedatectl set-timezone 'Asia/Shanghai'
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22.22.2'
+          registry-url: https://registry.npmjs.com/
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: latest
+
+      - name: Cache ~/.pnpm-store
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-pnpm-store
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-preview-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-preview-${{ env.cache-name }}-
+            ${{ runner.os }}-preview-
+            ${{ runner.os }}-
+
+      - name: Install dependencies
+        # husky 的 prepare 会把 core.hooksPath 指到 .husky/_，并写入 pre-push。
+        # hub-mirror-action 随后无条件执行 git lfs install（lfs 输入控制不了这一步），
+        # 遇到已有钩子会以退出码 2 失败。CI 不需要 git 钩子，安装时跳过 husky。
+        run: pnpm i --frozen-lockfile
+        env:
+          HUSKY: "0"
+
+      - name: Build
+        run: pnpm build
+        env:
+          FORCE_COLOR: 2
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          publish_dir: ./dist
+          # 同仓库 gh-pages：用运行器自带的 GITHUB_TOKEN，避免依赖可能过期的 PERSONAL_TOKEN。
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          commit_message: Update ghPages
+          force_orphan: true
+
+      - name: Mirror the Github organization repos to Gitee.
+        uses: Yikun/hub-mirror-action@master
+        with:
+          src: 'github/buqiyuan'
+          dst: 'gitee/buqiyuan'
+          dst_key: ${{ secrets.GITEE_PRIVATE_KEY }}
+          dst_token: ${{ secrets.GITEE_TOKEN }}
+          static_list: 'vue3-antdv-admin'
+          force_update: true
+          debug: true
