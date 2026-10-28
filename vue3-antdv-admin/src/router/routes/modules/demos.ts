@@ -11,6 +11,7 @@ const routes: Array<RouteRecordRaw> = [
     meta: {
       title: t('routes.demo.demo'),
       icon: 'ant-design:desktop-outlined',
+      hideInMenu: true,
     },
     children: [
       {

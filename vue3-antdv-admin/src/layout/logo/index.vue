@@ -1,7 +1,7 @@
 <template>
   <div class="logo">
     <img src="~@/assets/images/logo.png" alt="" />
-    <h2 v-show="!collapsed" class="title">One Piece</h2>
+    <h2 v-show="!collapsed" class="title">{{ title }}</h2>
   </div>
 </template>
 
@@ -11,6 +11,8 @@
       type: Boolean,
     },
   });
+
+  const title = import.meta.env.VITE_APP_TITLE || 'AI Reviewer';
 </script>
 
 <style lang="less" scoped>
@@ -24,6 +26,8 @@
     img {
       height: 32px;
       margin-right: 8px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
     }
 
     .title {

@@ -3,7 +3,7 @@
     <div class="login-logo">
       <!-- <svg-icon name="logo" :size="45" /> -->
       <img src="~@/assets/images/logo.png" width="45" />
-      <h1 class="mb-0 ml-2 text-3xl font-bold">Antdv Admin</h1>
+      <h1 class="mb-0 ml-2 text-3xl font-bold">{{ appTitle }}</h1>
     </div>
     <a-form layout="horizontal" :model="loginFormModel" @submit.prevent="handleSubmit">
       <a-form-item>
@@ -59,6 +59,8 @@
 
   const route = useRoute();
   const router = useRouter();
+
+  const appTitle = import.meta.env.VITE_APP_TITLE || 'AI Reviewer';
   const userStore = useUserStore();
 
   const loading = ref(false);
@@ -121,6 +123,11 @@
       display: flex;
       align-items: center;
       margin-bottom: 30px;
+
+      img {
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      }
 
       .svg-icon {
         font-size: 48px;

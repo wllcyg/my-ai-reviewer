@@ -98,13 +98,13 @@ export default defineConfig(({ command, mode }) => {
         '^/api': {
           target: proxyTarget,
           changeOrigin: true,
-          secure: true,
+          secure: false,
           rewrite: (path: string) => path.replace(/^\/api/, ''),
         },
         '^/upload': {
           target: new URL('/upload', proxyTarget).toString(),
           changeOrigin: true,
-          secure: true,
+          secure: false,
           rewrite: (path: string) => path.replace(/^\/upload/, ''),
         },
       },
