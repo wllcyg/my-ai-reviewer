@@ -1,12 +1,25 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 
 import { generateUUID } from '~/utils'
 
+import {
+  ApprovalActionEnum,
+  ApprovalNodeTypeEnum,
+  DOCUMENT_CATEGORY_OPTIONS,
+  DOCUMENT_SCOPE_OPTIONS,
+  DOCUMENT_STATUS_OPTIONS,
+  DocumentStatusEnum,
+  REVIEW_STATUS_OPTIONS,
+  ReviewStatusEnum,
+  VECTOR_STATUS_OPTIONS,
+} from './document.constant'
 import { DocumentApprovalEntity } from './document-approval.entity'
 import { DocumentEntity } from './document.entity'
+import { AuditDocumentDto } from './dto/audit-document.dto'
 import { CreateDocumentDto } from './dto/create-document.dto'
+import { DocumentMetaDto } from './dto/document-meta.dto'
 import { QueryDocumentDto } from './dto/query-document.dto'
 import { GenerateUploadSignDto, UploadSignResultDto } from './dto/upload-sign.dto'
 import { R2StorageService } from './r2-storage.service'
@@ -28,6 +41,19 @@ export class DocumentService {
    */
   private sanitizeFileName(name: string): string {
     return (name || '').replace(/[<>"'/\\;`|*?~]/g, '_').trim()
+  }
+
+  /**
+   * 获取企业级全局状态字典与配置元数据 (SSOT)
+   */
+  getMeta(): DocumentMetaDto {
+    return {
+      reviewStatus: Object.values(REVIEW_STATUS_OPTIONS),
+      vectorStatus: Object.values(VECTOR_STATUS_OPTIONS),
+      documentStatus: Object.values(DOCUMENT_STATUS_OPTIONS),
+      scope: Object.values(DOCUMENT_SCOPE_OPTIONS),
+      categories: DOCUMENT_CATEGORY_OPTIONS,
+    }
   }
 
   /**
@@ -57,8 +83,8 @@ export class DocumentService {
       scope: dto.scope || 'PUBLIC',
       visibleDeptIds: dto.visibleDeptIds || [],
       visibleDeptNames: dto.visibleDeptNames || [],
-      status: 'PUBLISHED',
-      reviewStatus: 'APPROVED', // 现阶段默认通过，后续接 AI 自动评审
+      status: 'DRAFT', // 初始为草稿状态
+      reviewStatus: 'INIT', // 审批流初始为待提交/草稿
       vectorStatus: 'unprocessed',
       createBy: user.uid,
       updateBy: user.uid,
@@ -74,7 +100,7 @@ export class DocumentService {
       action: 'SUBMIT',
       operatorId: user.uid,
       operatorName: '提交人',
-      comment: '文档直传成功并提交归档',
+      comment: '文档直传成功并生成草稿，待提交走查',
       snapshotStatus: savedDoc.reviewStatus,
     })
     await this.approvalRepo.save(initialApproval)
@@ -188,6 +214,90 @@ export class DocumentService {
     await this.docRepo.delete({ docCode: code })
 
     this.logger.log(`文档 [${code}] 已被用户 [${user.uid}] 彻底移除`)
+  }
+
+  /**
+   * 提交文档审核（从草稿流转到待审核状态，并记录流转历史）
+   */
+  async submitForReview(code: string, user: IAuthUser, comment?: string): Promise<DocumentEntity> {
+    const document = await this.docRepo.findOne({ where: { docCode: code } })
+    if (!document) {
+      throw new NotFoundException(`未找到业务编码为 ${code} 的文档`)
+    }
+
+    const isAdmin = user.roles && (user.roles.includes('admin') || user.roles.includes('super_admin'))
+    if (!isAdmin && document.createBy !== user.uid) {
+      throw new ForbiddenException('您无权提交他人创建的草稿文档')
+    }
+
+    if (document.status !== DocumentStatusEnum.DRAFT) {
+      throw new BadRequestException(`只有草稿状态的文档可以提交审核，当前状态为: ${document.status}`)
+    }
+
+    // 变更为待审核状态，同时初审流转为 AI_REVIEWING
+    document.status = DocumentStatusEnum.UNDER_REVIEW
+    document.reviewStatus = ReviewStatusEnum.AI_REVIEWING
+    document.updateBy = user.uid
+    const savedDoc = await this.docRepo.save(document)
+
+    // 记录审批历史节点
+    const approval = this.approvalRepo.create({
+      docId: savedDoc.id,
+      docCode: savedDoc.docCode,
+      nodeType: ApprovalNodeTypeEnum.SUBMIT,
+      action: ApprovalActionEnum.SUBMIT,
+      operatorId: user.uid,
+      operatorName: '提交人',
+      comment: comment || '提交文档审核，进入待审核流转池',
+      snapshotStatus: savedDoc.status,
+    })
+    await this.approvalRepo.save(approval)
+
+    this.logger.log(`文档 [${code}] 已提交审核，状态变更为 UNDER_REVIEW`)
+    return savedDoc
+  }
+
+  /**
+   * 审核文档（通过/驳回，并流转状态与历史）
+   */
+  async auditDocument(code: string, dto: AuditDocumentDto, user: IAuthUser): Promise<DocumentEntity> {
+    const document = await this.docRepo.findOne({ where: { docCode: code } })
+    if (!document) {
+      throw new NotFoundException(`未找到业务编码为 ${code} 的文档`)
+    }
+
+    if (document.status !== DocumentStatusEnum.UNDER_REVIEW) {
+      throw new BadRequestException(`当前文档不在待审核状态 (当前状态: ${document.status})`)
+    }
+
+    if (dto.action === 'APPROVE') {
+      document.status = DocumentStatusEnum.PUBLISHED
+      document.reviewStatus = ReviewStatusEnum.APPROVED
+    } else {
+      // 驳回则退回草稿状态供修改
+      document.status = DocumentStatusEnum.DRAFT
+      document.reviewStatus = ReviewStatusEnum.REJECTED
+      document.reviewRemark = dto.comment || '审核未通过被驳回'
+    }
+
+    document.updateBy = user.uid
+    const savedDoc = await this.docRepo.save(document)
+
+    // 记录审批流转节点
+    const approval = this.approvalRepo.create({
+      docId: savedDoc.id,
+      docCode: savedDoc.docCode,
+      nodeType: ApprovalNodeTypeEnum.MANUAL_REVIEW,
+      action: dto.action === 'APPROVE' ? ApprovalActionEnum.APPROVE : ApprovalActionEnum.REJECT,
+      operatorId: user.uid,
+      operatorName: '审核人',
+      comment: dto.comment || (dto.action === 'APPROVE' ? '审核通过，准予发布' : '审核驳回，退回草稿'),
+      snapshotStatus: savedDoc.status,
+    })
+    await this.approvalRepo.save(approval)
+
+    this.logger.log(`文档 [${code}] 审核完成: ${dto.action}, 操作者: ${user.uid}`)
+    return savedDoc
   }
 
   /**

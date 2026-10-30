@@ -127,6 +127,38 @@ export async function documentDelete(
   });
 }
 
+/** 提交文档审核（从草稿流转到待审核） POST /api/documents/:code/submit */
+export async function documentSubmitReview(
+  code: string,
+  comment?: string,
+  options?: RequestOptions,
+) {
+  return request<DocumentItemEntity>(`/api/documents/${code}/submit`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: { comment },
+    ...(options || {}),
+  });
+}
+
+/** 审核文档（通过/驳回） POST /api/documents/:code/audit */
+export async function documentAudit(
+  code: string,
+  body: { action: 'APPROVE' | 'REJECT'; comment?: string },
+  options?: RequestOptions,
+) {
+  return request<DocumentItemEntity>(`/api/documents/${code}/audit`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  });
+}
+
 /** 获取私密文档的授权预览访问链接 GET /api/documents/access-url */
 export async function documentGetAccessUrl(
   params: { storageKey: string },
@@ -135,6 +167,30 @@ export async function documentGetAccessUrl(
   return request<string>('/api/documents/access-url', {
     method: 'GET',
     params,
+    ...(options || {}),
+  });
+}
+
+export interface DocumentMetaOption {
+  value: string;
+  label: string;
+  color?: string;
+  badge?: 'success' | 'processing' | 'default' | 'error' | 'warning';
+  description?: string;
+}
+
+export interface DocumentMetaResult {
+  reviewStatus: DocumentMetaOption[];
+  vectorStatus: DocumentMetaOption[];
+  documentStatus: DocumentMetaOption[];
+  scope: DocumentMetaOption[];
+  categories: DocumentMetaOption[];
+}
+
+/** 获取知识库文档模块全局枚举字典与配置元数据 (SSOT) GET /api/documents/meta */
+export async function documentGetMeta(options?: RequestOptions) {
+  return request<DocumentMetaResult>('/api/documents/meta', {
+    method: 'GET',
     ...(options || {}),
   });
 }

@@ -6,7 +6,9 @@ import { AuthUser } from '~/modules/auth/decorators/auth-user.decorator'
 
 import { DocumentEntity } from './document.entity'
 import { DocumentService } from './document.service'
+import { AuditDocumentDto, SubmitReviewDto } from './dto/audit-document.dto'
 import { CreateDocumentDto } from './dto/create-document.dto'
+import { DocumentMetaDto } from './dto/document-meta.dto'
 import { QueryDocumentDto } from './dto/query-document.dto'
 import { GenerateUploadSignDto, UploadSignResultDto } from './dto/upload-sign.dto'
 
@@ -46,6 +48,44 @@ export class DocumentController {
     return this.documentService.findAll(dto, user)
   }
 
+  @Get('meta')
+  @ApiOperation({ summary: '获取知识库文档模块全局枚举字典与配置元数据 (SSOT)' })
+  @ApiOkResponse({ type: DocumentMetaDto })
+  @ApiResult({ type: DocumentMetaDto })
+  async getMeta(): Promise<DocumentMetaDto> {
+    return this.documentService.getMeta()
+  }
+
+  @Get('access-url')
+  @ApiOperation({ summary: '获取私密文档的临时访问与预览 URL' })
+  @ApiOkResponse({ type: String })
+  @ApiResult({ type: String })
+  async getAccessUrl(@Query('storageKey') storageKey: string): Promise<string> {
+    return this.documentService.getDocumentAccessUrl(storageKey)
+  }
+
+  @Post(':code/submit')
+  @ApiOperation({ summary: '提交文档审核（从草稿流转到待审核）' })
+  @ApiResult({ type: DocumentEntity })
+  async submitReview(
+    @Param('code') code: string,
+    @Body() dto: SubmitReviewDto,
+    @AuthUser() user: IAuthUser,
+  ): Promise<DocumentEntity> {
+    return this.documentService.submitForReview(code, user, dto?.comment)
+  }
+
+  @Post(':code/audit')
+  @ApiOperation({ summary: '审核文档（通过/驳回，并流转状态与历史）' })
+  @ApiResult({ type: DocumentEntity })
+  async audit(
+    @Param('code') code: string,
+    @Body() dto: AuditDocumentDto,
+    @AuthUser() user: IAuthUser,
+  ): Promise<DocumentEntity> {
+    return this.documentService.auditDocument(code, dto, user)
+  }
+
   @Get(':code')
   @ApiOperation({ summary: '根据业务编码获取文档详情与审批流转轨迹' })
   async detail(@Param('code') code: string) {
@@ -59,13 +99,5 @@ export class DocumentController {
     @AuthUser() user: IAuthUser,
   ): Promise<void> {
     return this.documentService.deleteByCode(code, user)
-  }
-
-  @Get('access-url')
-  @ApiOperation({ summary: '获取私密文档的临时访问与预览 URL' })
-  @ApiOkResponse({ type: String })
-  @ApiResult({ type: String })
-  async getAccessUrl(@Query('storageKey') storageKey: string): Promise<string> {
-    return this.documentService.getDocumentAccessUrl(storageKey)
   }
 }

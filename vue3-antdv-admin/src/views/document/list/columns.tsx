@@ -1,5 +1,6 @@
 import { Tag, Badge, Tooltip } from 'ant-design-vue';
 import type { TableColumn } from '@/components/core/dynamic-table';
+import type { DocumentMetaResult } from '@/api/backend/api/document';
 
 export interface DocumentItem {
   id: number;
@@ -15,6 +16,7 @@ export interface DocumentItem {
   fileSize?: number;
   sizeStr: string;
   chunkCount: number;
+  status: 'DRAFT' | 'UNDER_REVIEW' | 'PUBLISHED' | 'ARCHIVED' | string;
   vectorStatus: 'unprocessed' | 'processing' | 'completed' | 'failed' | string;
   reviewStatus: 'INIT' | 'AI_REVIEWING' | 'MANUAL_REVIEWING' | 'APPROVED' | 'REJECTED' | string;
   reviewScore: number;
@@ -33,12 +35,13 @@ export interface DocumentItem {
 
 export type DocumentColumnItem = TableColumn<DocumentItem>;
 
-export const categoryOptions = [
-  { label: '技术规范', value: '技术规范' },
-  { label: '人事行政', value: '人事行政' },
-  { label: '财务制度', value: '财务制度' },
-  { label: '安全合规', value: '安全合规' },
-  { label: '产品说明', value: '产品说明' },
+/** 默认保底兜底分类 (未连通接口前或离线兜底) */
+export const defaultCategoryOptions = [
+  { label: '技术规范', value: '技术规范', color: 'blue' },
+  { label: '安全合规', value: '安全合规', color: 'red' },
+  { label: '财务制度', value: '财务制度', color: 'green' },
+  { label: '人事行政', value: '人事行政', color: 'orange' },
+  { label: '产品说明', value: '产品说明', color: 'purple' },
 ];
 
 /** 用户可授权的管辖部门树结构 (支持多选) */
@@ -73,39 +76,56 @@ export const authorizedDeptTree = [
   },
 ];
 
-export const vectorStatusOptions = [
-  { label: '已就绪 (可检索)', value: 'completed' },
-  { label: '切片向量化中', value: 'processing' },
-  { label: '未解析', value: 'unprocessed' },
-  { label: '解析失败', value: 'failed' },
+export const defaultVectorStatusOptions = [
+  { label: '已就绪 (可检索)', value: 'completed', badge: 'success' },
+  { label: '切片向量化中', value: 'processing', badge: 'processing' },
+  { label: '未解析', value: 'unprocessed', badge: 'default' },
+  { label: '解析失败', value: 'failed', badge: 'error' },
 ];
 
-export const reviewStatusOptions = [
-  { label: '审核通过', value: 'APPROVED' },
-  { label: 'AI 初审中', value: 'AI_REVIEWING' },
-  { label: '待人工复核', value: 'MANUAL_REVIEWING' },
-  { label: '已驳回', value: 'REJECTED' },
-  { label: '草稿/未提交', value: 'INIT' },
+export const defaultReviewStatusOptions = [
+  { label: '审核通过', value: 'APPROVED', color: 'success' },
+  { label: 'AI 初审中', value: 'AI_REVIEWING', color: 'processing' },
+  { label: '待人工复核', value: 'MANUAL_REVIEWING', color: 'warning' },
+  { label: '已驳回', value: 'REJECTED', color: 'error' },
+  { label: '草稿/未提交', value: 'INIT', color: 'default' },
 ];
 
-const categoryColorMap: Record<string, string> = {
-  技术规范: 'blue',
-  人事行政: 'orange',
-  财务制度: 'green',
-  安全合规: 'red',
-  产品说明: 'purple',
-};
+export const defaultDocumentStatusOptions = [
+  { label: '草稿', value: 'DRAFT', color: 'default' },
+  { label: '审核中', value: 'UNDER_REVIEW', color: 'processing' },
+  { label: '已发布', value: 'PUBLISHED', color: 'success' },
+  { label: '已归档', value: 'ARCHIVED', color: 'warning' },
+];
 
 export const getDocumentColumns = (actions: {
   onOpenReport: (record: DocumentItem) => void;
+  onSubmitReview: (record: DocumentItem) => void;
   onReVector: (record: DocumentItem) => void;
   onDelete: (record: DocumentItem) => void;
-}): DocumentColumnItem[] => [
-  {
-    title: '文档名称与格式',
-    dataIndex: 'title',
-    width: 280,
-    customRender: ({ record }) => {
+  meta?: DocumentMetaResult | null;
+}): DocumentColumnItem[] => {
+  const categories = actions.meta?.categories?.length ? actions.meta.categories : defaultCategoryOptions;
+  const vectorStatuses = actions.meta?.vectorStatus?.length ? actions.meta.vectorStatus : defaultVectorStatusOptions;
+  const reviewStatuses = actions.meta?.reviewStatus?.length ? actions.meta.reviewStatus : defaultReviewStatusOptions;
+  const documentStatuses = actions.meta?.documentStatus?.length ? actions.meta.documentStatus : defaultDocumentStatusOptions;
+
+  return [
+    {
+      title: '文档名称与格式',
+      dataIndex: 'title',
+      searchField: 'keyword',
+      width: 280,
+      formItemProps: {
+        label: '文档名称',
+        component: 'Input',
+        colProps: { span: 6 },
+        componentProps: {
+          placeholder: '输入文档名称搜索',
+          allowClear: true,
+        },
+      },
+      customRender: ({ record }) => {
       const ext = (record.extension || 'pdf').toLowerCase();
       let iconColor = 'bg-red-50 text-red-600 border-red-200';
       if (ext === 'docx' || ext === 'doc') {
@@ -142,27 +162,84 @@ export const getDocumentColumns = (actions: {
   {
     title: '文档分类',
     dataIndex: 'category',
-    width: 130,
+    width: 120,
     formItemProps: {
+      label: '文档分类',
+      colProps: { span: 6 },
       component: 'Select',
       componentProps: {
         placeholder: '全部分类',
-        options: categoryOptions,
+        options: categories,
         allowClear: true,
       },
     },
     customRender: ({ record }) => {
+      const found = categories.find((c) => c.value === record.category);
       return (
-        <Tag color={categoryColorMap[record.category] || 'default'}>
-          {record.category || '通用'}
+        <Tag color={found?.color || 'default'}>
+          {found?.label || record.category || '通用'}
         </Tag>
       );
     },
   },
   {
+    title: '文档状态',
+    dataIndex: 'status',
+    width: 110,
+    formItemProps: {
+      label: '文档状态',
+      component: 'Select',
+      colProps: { span: 6 },
+      componentProps: {
+        placeholder: '全部状态',
+        options: documentStatuses,
+        allowClear: true,
+      },
+    },
+    customRender: ({ record }) => {
+      const st = record.status || 'DRAFT';
+      const found = documentStatuses.find((s) => s.value === st);
+      return (
+        <Tag color={found?.color || 'default'}>
+          {found?.label || st}
+        </Tag>
+      );
+    },
+  },
+  {
+    title: 'AI 审核状态',
+    dataIndex: 'reviewStatus',
+    width: 170,
+    hideInSearch: true,
+    customRender: ({ record }) => {
+      const rs = record.reviewStatus;
+      const found = reviewStatuses.find((r) => r.value === rs);
+      const scoreStr = (rs === 'APPROVED' && record.reviewScore) ? ` (${record.reviewScore}分)` : '';
+      return (
+        <Tag color={found?.color || 'default'}>
+          {found?.label || rs || '草稿/未提交'}{scoreStr}
+        </Tag>
+      );
+    },
+  },
+  {
+    title: '向量化状态 (RAG)',
+    dataIndex: 'vectorStatus',
+    width: 160,
+    hideInSearch: true,
+    customRender: ({ record }) => {
+      const vs = record.vectorStatus;
+      const found = vectorStatuses.find((v) => v.value === vs);
+      if (found) {
+        return <Badge status={(found.badge as any) || 'default'} text={found.label} />;
+      }
+      return <Badge status="default" text={vs || '未解析'} />;
+    },
+  },
+  {
     title: '可见范围',
     dataIndex: 'scope',
-    width: 170,
+    width: 150,
     hideInSearch: true,
     customRender: ({ record }) => {
       if (record.scope === 'PUBLIC') return <Tag color="green">全员公开</Tag>;
@@ -180,62 +257,6 @@ export const getDocumentColumns = (actions: {
         );
       }
       return <Tag color="purple">私密文档</Tag>;
-    },
-  },
-  {
-    title: '向量化状态 (RAG)',
-    dataIndex: 'vectorStatus',
-    width: 170,
-    formItemProps: {
-      component: 'Select',
-      componentProps: {
-        placeholder: '全部状态',
-        options: vectorStatusOptions,
-        allowClear: true,
-      },
-    },
-    customRender: ({ record }) => {
-      const vs = record.vectorStatus;
-      if (vs === 'completed' || vs === 'READY') {
-        return <Badge status="success" text="已就绪 (可检索)" />;
-      }
-      if (vs === 'processing' || vs === 'PARSING') {
-        return <Badge status="processing" text="正在分块切片..." />;
-      }
-      if (vs === 'failed' || vs === 'FAILED') {
-        return <Badge status="error" text="解析失败" />;
-      }
-      return <Badge status="default" text="未解析" />;
-    },
-  },
-  {
-    title: 'AI 审核状态',
-    dataIndex: 'reviewStatus',
-    width: 180,
-    formItemProps: {
-      component: 'Select',
-      componentProps: {
-        placeholder: '全部状态',
-        options: reviewStatusOptions,
-        allowClear: true,
-      },
-    },
-    customRender: ({ record }) => {
-      const rs = record.reviewStatus;
-      if (rs === 'APPROVED') {
-        const scoreStr = record.reviewScore ? ` (${record.reviewScore}分)` : '';
-        return <Tag color="success">审核通过{scoreStr}</Tag>;
-      }
-      if (rs === 'AI_REVIEWING' || rs === 'REVIEWING') {
-        return <Tag color="processing">AI 初审中...</Tag>;
-      }
-      if (rs === 'MANUAL_REVIEWING') {
-        return <Tag color="warning">待人工复核</Tag>;
-      }
-      if (rs === 'REJECTED') {
-        return <Tag color="error">已驳回</Tag>;
-      }
-      return <Tag>草稿/未提交</Tag>;
     },
   },
   {
@@ -257,6 +278,18 @@ export const getDocumentColumns = (actions: {
     hideInSearch: true,
     fixed: 'right',
     actions: ({ record }) => [
+      ...(record.status === 'DRAFT'
+        ? [
+            {
+              label: '提交审核',
+              type: 'link' as const,
+              popConfirm: {
+                title: `确定要将《${record.title}》提交审核吗？提交后将进入待审核流转`,
+                onConfirm: () => actions.onSubmitReview(record),
+              },
+            },
+          ]
+        : []),
       {
         label: '审核报告',
         type: 'link',
@@ -279,3 +312,4 @@ export const getDocumentColumns = (actions: {
     ],
   },
 ];
+};

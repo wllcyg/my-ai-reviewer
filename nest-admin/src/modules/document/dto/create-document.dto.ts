@@ -11,6 +11,7 @@ import {
   Min,
 } from 'class-validator'
 
+import { DocumentScopeEnum } from '../document.constant'
 import type { DocumentScope } from '../document.entity'
 
 export class CreateDocumentDto {
@@ -56,9 +57,9 @@ export class CreateDocumentDto {
   @MaxLength(1000)
   publicUrl?: string
 
-  @ApiPropertyOptional({ description: '可见范围', enum: ['PUBLIC', 'DEPT', 'PRIVATE'], default: 'PUBLIC' })
+  @ApiPropertyOptional({ description: '可见范围', enum: DocumentScopeEnum, default: DocumentScopeEnum.PUBLIC })
   @IsOptional()
-  @IsIn(['PUBLIC', 'DEPT', 'PRIVATE'], { message: '可见范围必须为 PUBLIC/DEPT/PRIVATE' })
+  @IsIn([DocumentScopeEnum.PUBLIC, DocumentScopeEnum.DEPT, DocumentScopeEnum.PRIVATE], { message: '可见范围必须为 PUBLIC/DEPT/PRIVATE' })
   scope?: DocumentScope
 
   @ApiPropertyOptional({ description: '指定可见部门ID列表', type: [Number] })

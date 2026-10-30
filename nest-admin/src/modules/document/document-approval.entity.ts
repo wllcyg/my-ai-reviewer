@@ -2,9 +2,10 @@ import { ApiProperty } from '@nestjs/swagger'
 import { Column, Entity, Index } from 'typeorm'
 
 import { CommonEntity } from '~/common/entity/common.entity'
+import { ApprovalActionEnum, ApprovalNodeTypeEnum } from './document.constant'
 
-export type ApprovalNodeType = 'SUBMIT' | 'AI_REVIEW' | 'MANUAL_REVIEW'
-export type ApprovalAction = 'SUBMIT' | 'APPROVE' | 'REJECT' | 'TRANSFER'
+export type ApprovalNodeType = ApprovalNodeTypeEnum | 'SUBMIT' | 'AI_REVIEW' | 'MANUAL_REVIEW'
+export type ApprovalAction = ApprovalActionEnum | 'SUBMIT' | 'APPROVE' | 'REJECT' | 'TRANSFER'
 
 @Entity({ name: 'doc_approval_records' })
 export class DocumentApprovalEntity extends CommonEntity {

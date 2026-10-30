@@ -63,7 +63,29 @@
       </a-col>
     </a-row>
 
-    <!-- 2. 标准 DynamicTable 通用表格与搜索集成 -->
+    <!-- 2. 状态快捷切换 Tab 栏 -->
+    <div class="bg-white px-4 pt-2 rounded-xl border border-slate-100 shadow-2xs">
+      <a-tabs v-model:activeKey="currentStatusTab" @change="handleTabChange">
+        <a-tab-pane key="ALL" tab="全部文档" />
+        <a-tab-pane key="UNDER_REVIEW">
+          <template #tab>
+            <span>
+              待审核文档
+              <a-badge
+                v-if="stats.underReviewCount > 0"
+                :count="stats.underReviewCount"
+                :number-style="{ backgroundColor: '#faad14' }"
+                class="ml-1"
+              />
+            </span>
+          </template>
+        </a-tab-pane>
+        <a-tab-pane key="PUBLISHED" tab="已发布文档" />
+        <a-tab-pane key="DRAFT" tab="草稿箱" />
+      </a-tabs>
+    </div>
+
+    <!-- 3. 标准 DynamicTable 通用表格与搜索集成 -->
     <DynamicTable
       header-title="知识库文档列表"
       title-tooltip="基于向量数据库 (Chroma) 与大模型文档走查引擎的企业知识管理"
@@ -104,6 +126,7 @@
     <!-- 3. 上传文档弹窗组件 (集成 Cloudflare R2 预签名直传) -->
     <DocumentUploadModal
       v-model:open="uploadModalVisible"
+      :categories="documentMeta?.categories"
       @success="handleUploadSuccess"
     />
 
@@ -173,7 +196,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, reactive, computed } from 'vue';
+  import { ref, reactive, computed, onMounted } from 'vue';
   import { message } from 'ant-design-vue';
   import {
     FileTextOutlined,
@@ -185,7 +208,13 @@
     CheckCircleOutlined,
   } from '@ant-design/icons-vue';
   import { useTable, type LoadDataParams } from '@/components/core/dynamic-table';
-  import { documentList, documentDelete } from '@/api/backend/api/document';
+  import {
+    documentList,
+    documentDelete,
+    documentSubmitReview,
+    documentGetMeta,
+    type DocumentMetaResult,
+  } from '@/api/backend/api/document';
   import DocumentUploadModal from './components/DocumentUploadModal.vue';
   import {
     getDocumentColumns,
@@ -196,16 +225,36 @@
     name: 'DocumentList',
   });
 
+  // 0. 后端全局枚举字典元数据 (单一真实来源 SSOT)
+  const documentMeta = ref<DocumentMetaResult | null>(null);
+
+  const fetchDocumentMeta = async () => {
+    try {
+      const res = await documentGetMeta();
+      documentMeta.value = res;
+    } catch (e) {
+      console.warn('获取后端文档元数据字典失败，自动降级为默认字典:', e);
+    }
+  };
+
+  onMounted(() => {
+    fetchDocumentMeta();
+  });
+
   // 1. 初始化 DynamicTable 实例 (支持回车自动触发搜索)
   const [DynamicTable, dynamicTableInstance] = useTable({
     formProps: {
       autoSubmitOnEnter: true,
-      labelWidth: 90,
-      baseColProps: { span: 6 },
+      labelWidth: 80,
+      showAdvancedButton: false,
     },
   });
 
-
+  // 快捷 Tab 状态过滤 (ALL / UNDER_REVIEW / PUBLISHED / DRAFT)
+  const currentStatusTab = ref<string>('ALL');
+  const handleTabChange = () => {
+    dynamicTableInstance?.reload();
+  };
 
   // 3. 统计指标响应式数据
   const stats = reactive({
@@ -213,6 +262,7 @@
     vectorReady: 0,
     passRate: 100,
     riskCount: 0,
+    underReviewCount: 0,
   });
 
   // 4. 表格多选支持
@@ -255,17 +305,32 @@
     }
   };
 
+  const handleSubmitReview = async (record: DocumentItem) => {
+    try {
+      if (!record.docCode) return;
+      await documentSubmitReview(record.docCode);
+      message.success(`《${record.title}》已成功提交审核，状态已流转为待审核！`);
+      dynamicTableInstance?.reload();
+    } catch (err: any) {
+      message.error(`提交审核失败: ${err?.message || '未知错误'}`);
+    }
+  };
+
   const handleBatchReVector = () => {
     message.success(`已向向量后台提交 ${isCheckRows.value} 篇文档的重新切片任务`);
     rowSelection.value.selectedRowKeys = [];
   };
 
-  // 6. 传递给 DynamicTable 的列定义
-  const columns = getDocumentColumns({
-    onOpenReport: handleOpenReport,
-    onReVector: handleReVector,
-    onDelete: handleDelete,
-  });
+  // 6. 传递给 DynamicTable 的列定义 (动态响应后端枚举元数据)
+  const columns = computed(() =>
+    getDocumentColumns({
+      onOpenReport: handleOpenReport,
+      onSubmitReview: handleSubmitReview,
+      onReVector: handleReVector,
+      onDelete: handleDelete,
+      meta: documentMeta.value,
+    }),
+  );
 
   // 格式化文件大小
   const formatFileSize = (bytes: number): string => {
@@ -278,14 +343,17 @@
 
   // 7. DynamicTable 数据加载器 (调用后端真实分页 API)
   const loadTableData = async (params: LoadDataParams & Record<string, any>) => {
-    const { keyword, category, vectorStatus, reviewStatus, page = 1, pageSize = 10 } = params;
+    const { keyword, title, category, status, vectorStatus, reviewStatus, page = 1, pageSize = 10 } = params;
+    // 优先使用搜索栏指定的具体状态，未选时使用当前 Tab 切换的状态
+    const finalStatus = status || (currentStatusTab.value === 'ALL' ? undefined : currentStatusTab.value);
 
     try {
       const res = await documentList({
         page,
         pageSize,
-        keyword,
+        keyword: keyword || title,
         category,
+        status: finalStatus,
         vectorStatus,
         reviewStatus,
       });
@@ -304,11 +372,12 @@
         scope: doc.scope,
         visibleDeptIds: doc.visibleDeptIds,
         visibleDeptNames: doc.visibleDeptNames,
+        status: doc.status || 'DRAFT',
         sizeStr: formatFileSize(doc.fileSize),
         chunkCount: Math.ceil(doc.fileSize / (100 * 1024)) || 1,
         vectorStatus: doc.vectorStatus || 'unprocessed',
-        reviewStatus: doc.reviewStatus || 'APPROVED',
-        reviewScore: Number(doc.reviewScore) || 95,
+        reviewStatus: doc.reviewStatus || 'INIT',
+        reviewScore: Number(doc.reviewScore) || 0,
         author: doc.creator || '系统',
         updatedAt: doc.updatedAt ? doc.updatedAt.replace('T', ' ').substring(0, 16) : '刚刚',
         storageKey: doc.storageKey,
@@ -324,6 +393,7 @@
       stats.riskCount = items.filter(
         (d) => d.reviewStatus === 'REJECTED' || d.reviewStatus === 'MANUAL_REVIEWING',
       ).length;
+      stats.underReviewCount = items.filter((d) => d.status === 'UNDER_REVIEW').length;
 
       return {
         items,

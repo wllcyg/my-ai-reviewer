@@ -2,11 +2,17 @@ import { ApiProperty } from '@nestjs/swagger'
 import { Column, Entity, Index } from 'typeorm'
 
 import { CompleteEntity } from '~/common/entity/common.entity'
+import {
+  DocumentScopeEnum,
+  DocumentStatusEnum,
+  ReviewStatusEnum,
+  VectorStatusEnum,
+} from './document.constant'
 
-export type DocumentScope = 'PUBLIC' | 'DEPT' | 'PRIVATE'
-export type DocumentStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
-export type ReviewStatus = 'INIT' | 'AI_REVIEWING' | 'MANUAL_REVIEWING' | 'APPROVED' | 'REJECTED'
-export type VectorStatus = 'unprocessed' | 'processing' | 'completed' | 'failed'
+export type DocumentScope = DocumentScopeEnum | 'PUBLIC' | 'DEPT' | 'PRIVATE'
+export type DocumentStatus = DocumentStatusEnum | 'DRAFT' | 'UNDER_REVIEW' | 'PUBLISHED' | 'ARCHIVED'
+export type ReviewStatus = ReviewStatusEnum | 'INIT' | 'AI_REVIEWING' | 'MANUAL_REVIEWING' | 'APPROVED' | 'REJECTED'
+export type VectorStatus = VectorStatusEnum | 'unprocessed' | 'processing' | 'completed' | 'failed'
 
 @Entity({ name: 'doc_documents' })
 export class DocumentEntity extends CompleteEntity {
@@ -55,11 +61,11 @@ export class DocumentEntity extends CompleteEntity {
   @ApiProperty({ description: '可见部门名称列表', required: false })
   visibleDeptNames: string[]
 
-  @Column({ type: 'varchar', length: 20, default: 'PUBLISHED', comment: '文档生命周期状态' })
+  @Column({ type: 'varchar', length: 20, default: 'DRAFT', comment: '文档生命周期状态: DRAFT/PUBLISHED/ARCHIVED' })
   @ApiProperty({ description: '文档生命周期状态' })
   status: DocumentStatus
 
-  @Column({ name: 'review_status', type: 'varchar', length: 20, default: 'APPROVED', comment: '审批流状态' })
+  @Column({ name: 'review_status', type: 'varchar', length: 20, default: 'INIT', comment: '审批流状态: INIT/AI_REVIEWING/MANUAL_REVIEWING/APPROVED/REJECTED' })
   @ApiProperty({ description: '审批流状态' })
   reviewStatus: ReviewStatus
 

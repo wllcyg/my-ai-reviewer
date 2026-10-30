@@ -96,12 +96,12 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, reactive, watch } from 'vue';
+  import { ref, reactive, watch, computed } from 'vue';
   import { message, TreeSelect, type UploadProps } from 'ant-design-vue';
   import { InboxOutlined, RobotOutlined, LoadingOutlined } from '@ant-design/icons-vue';
   import axios from 'axios';
-  import { documentGetUploadSign, documentCreate } from '@/api/backend/api/document';
-  import { categoryOptions, authorizedDeptTree, type DocumentItem } from '../columns';
+  import { documentGetUploadSign, documentCreate, type DocumentMetaOption } from '@/api/backend/api/document';
+  import { defaultCategoryOptions, authorizedDeptTree, type DocumentItem } from '../columns';
 
   defineOptions({
     name: 'DocumentUploadModal',
@@ -110,10 +110,16 @@
   const props = withDefaults(
     defineProps<{
       open: boolean;
+      categories?: DocumentMetaOption[];
     }>(),
     {
       open: false,
+      categories: undefined,
     },
+  );
+
+  const categoryOptions = computed(() =>
+    props.categories?.length ? props.categories : defaultCategoryOptions,
   );
 
   const emit = defineEmits<{
@@ -279,6 +285,7 @@
         scope: savedDoc.scope,
         visibleDeptIds: savedDoc.visibleDeptIds,
         visibleDeptNames: savedDoc.visibleDeptNames,
+        status: savedDoc.status || 'DRAFT',
         sizeStr: formatFileSize(savedDoc.fileSize),
         chunkCount: Math.ceil(savedDoc.fileSize / (100 * 1024)) || 1,
         vectorStatus: savedDoc.vectorStatus,

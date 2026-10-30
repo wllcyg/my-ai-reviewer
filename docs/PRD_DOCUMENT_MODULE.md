@@ -2,7 +2,8 @@
 
 | 文档版本 | 状态 | 编写日期 | 关联工程 | 适用对象 |
 | :--- | :--- | :--- | :--- | :--- |
-| **v1.0.0** | 已实施 (Implemented) | 2026-10-30 | `nest-admin` / `vue3-antdv-admin` / `03_rag` | 产品、前后端开发、AI 算法工程师 |
+| **v1.1.0** | 已实施 (Implemented) | 2026-10-30 | `nest-admin` / `vue3-antdv-admin` / `03_rag` | 产品、前后端开发、合规审查员、AI 算法工程师 |
+| **v1.0.0** | 归档 (Archived) | 2026-10-30 | `nest-admin` / `vue3-antdv-admin` / `03_rag` | 基础直传与双主键实体基线版本 |
 
 ---
 
@@ -72,22 +73,31 @@ graph LR
 | `PRIVATE` | 个人私有 | 仅文档创建者（`create_by`）及超级管理员有权查阅。 |
 
 ### 4. 审批状态机与解耦架构 (Approval Lifecycle)
-为了确保主表整洁并沉淀高价值审计轨迹，**文档主表与审批轨迹表彻底解耦**。
+为了确保主表整洁并沉淀高价值审计轨迹，**文档主表生命周期状态 (`status`) 与审批轨迹表 (`doc_approval_records`) 彻底解耦**。
 
 ```mermaid
 stateDiagram-v2
-    [*] --> INIT: 直传成功提交落库
-    INIT --> AI_REVIEWING: 触发 AI 自动化审查
-    AI_REVIEWING --> APPROVED: AI 评分合格且无风险
-    AI_REVIEWING --> MANUAL_REVIEWING: AI 检出疑似敏感/风险
-    MANUAL_REVIEWING --> APPROVED: 管理员人工审核通过
-    MANUAL_REVIEWING --> REJECTED: 管理员驳回修改
-    REJECTED --> [*]
-    APPROVED --> [*]
+    [*] --> DRAFT: 直传成功落库 (初始为草稿)
+    DRAFT --> UNDER_REVIEW: 提交人点击「提交审核」 (POST /api/documents/:code/submit)
+    
+    state UNDER_REVIEW {
+        [*] --> AI初审中: 自动触发 AI 合规走查
+        AI初审中 --> 待人工复核: AI 检出疑似敏感/风险/低分
+        AI初审中 --> 审核通过: AI 评分高且无风险项
+    }
+    
+    UNDER_REVIEW --> PUBLISHED: 管理员人工审核通过 (POST /api/documents/:code/audit)
+    UNDER_REVIEW --> DRAFT: 管理员驳回修改 (退回草稿箱供提交人修改)
+    PUBLISHED --> ARCHIVED: 文档失效或手动归档
+    PUBLISHED --> [*]
 ```
 
-- **首条记录自动生成**：用户提交保存文档时，系统在同一事务中向 `doc_approval_records` 插入首条 `SUBMIT` 节点轨迹。
-- **多端流转兼容**：每次审批动作记录操作人 `operator_id`、节点类型 `node_type`、操作动作 `action`、评审意见 `comment` 及操作后状态快照 `snapshot_status`。
+- **初始状态**：新上传的文档默认赋予 `status: 'DRAFT'`（草稿）与 `reviewStatus: 'INIT'`（待提交），杜绝未审先发布的合规风险。
+- **草稿送审机制**：创作者点击「提交审核」，文档状态推进为 `UNDER_REVIEW`（待审核），并在履历表中生成 `SUBMIT` 节点。
+- **审核裁决流转**：
+  - **审核通过**：文档状态跃迁为 `PUBLISHED`（已发布，准予检索），审批状态为 `APPROVED`；
+  - **审核驳回**：文档状态退回至 `DRAFT`（草稿），审批状态为 `REJECTED`，同时在主表记录 `review_remark` 并在履历表中留存驳回修改意见。
+- **全生命周期审计轨迹**：每次状态变更均向 `doc_approval_records` 插入操作快照（记录操作人 `operator_id`、节点类型 `node_type`、动作 `action`、评语 `comment`、快照 `snapshot_status` 及时间戳）。
 
 ### 5. RAG 向量化切片与安全底座 (RAG Security Baseline)
 - **独立状态机制**：向量化状态（`vector_status`）独立于业务审批状态，避免模型推理耗时阻塞日常文档流转。
@@ -101,6 +111,20 @@ stateDiagram-v2
   1. 校验操作权限（仅超管或创建者本人可删）；
   2. 异步调用 Cloudflare R2 SDK 删除物理文件；
   3. 清理审批流记录及文档主表记录。
+
+### 7. 企业级全局枚举单一真实来源 (SSOT & Meta API)
+- **设计原则**：所有业务状态（文档生命周期状态、审批状态、向量化状态、可见范围、文档分类）统一收拢于后端的 [document.constant.ts](file:///Users/moliang/Desktop/coder/my-ai-reviewer/nest-admin/src/modules/document/document.constant.ts)，确保代码强类型安全。
+- **元数据接口**：提供统一的 `GET /api/documents/meta` 接口，前端所有下拉筛选菜单、Tag 颜色、说明文案强制从该接口动态消费，严禁前端硬编码状态文本。
+
+### 8. 双重视角工作台与单行化搜索 (Dual Workspaces)
+- **创作者视角（知识库文档列表）**：
+  - **单行化极简搜索**：`文档名称` + `文档分类` + `文档状态` + `查询/重置` 完美按 24 栅格单行平铺，收拢冗余折叠；
+  - **状态快速切换 Tab 栏**：提供 `全部文档` | `待审核文档 (带黄色角标)` | `已发布文档` | `草稿箱` 快速选项卡；
+  - **操作列动态行为**：草稿状态文档自动显示高亮「提交审核」按钮。
+- **审核员视角（待审核文档工作台）**：
+  - 独立路由组件 `views/document/review/index.vue`，专供管理员/合规员处理待审队列；
+  - 顶部指标卡：待人工复审总数、AI 风险预警数、初审平均分；
+  - 操作栏提供一键「走查报告」（基于 `<a-timeline>` 展示全量历史轨迹）、「审核通过」与「驳回修改」弹窗。
 
 ---
 
@@ -123,8 +147,8 @@ stateDiagram-v2
 | `scope` | VARCHAR(20) | DEFAULT 'PUBLIC' | 可见范围：`PUBLIC` / `DEPT` / `PRIVATE` |
 | `visible_dept_ids` | JSON | NULL | 允许查看的部门 ID 数组 |
 | `visible_dept_names`| JSON | NULL | 冗余部门名称数组 |
-| `status` | VARCHAR(20) | DEFAULT 'PUBLISHED' | 生命周期：`DRAFT` / `PUBLISHED` / `ARCHIVED` |
-| `review_status` | VARCHAR(20) | DEFAULT 'APPROVED' | 审批状态（见字典） |
+| `status` | VARCHAR(20) | DEFAULT 'DRAFT' | 生命周期：`DRAFT` / `UNDER_REVIEW` / `PUBLISHED` / `ARCHIVED` |
+| `review_status` | VARCHAR(20) | DEFAULT 'INIT' | 审批状态（见字典） |
 | `review_score` | DECIMAL(5,2)| NULL | AI 审核得分 (0~100) |
 | `review_remark`| TEXT | NULL | 审核意见或驳回原因 |
 | `vector_status`| VARCHAR(20) | DEFAULT 'unprocessed' | 向量化状态（见字典） |
@@ -149,12 +173,18 @@ stateDiagram-v2
 ### 2. 枚举状态映射表
 
 ```
-ReviewStatus (审批状态):
-├── INIT: 待提交/草稿
+DocumentStatus (生命周期状态):
+├── DRAFT: 草稿 (直传落库默认初始态)
+├── UNDER_REVIEW: 待审核 (提交送审后进入该状态)
+├── PUBLISHED: 已发布 (审核通过，可供语义检索)
+└── ARCHIVED: 已归档 (归档下架)
+
+ReviewStatus (审批流状态):
+├── INIT: 草稿/未提交 (默认初始态)
 ├── AI_REVIEWING: AI 初审中
 ├── MANUAL_REVIEWING: 待人工复核
 ├── APPROVED: 审核通过
-└── REJECTED: 已驳回
+└── REJECTED: 已驳回 (退回草稿箱修改)
 
 VectorStatus (向量化状态):
 ├── unprocessed: 未解析
@@ -169,11 +199,14 @@ VectorStatus (向量化状态):
 
 | 请求方式 | 路径 | 功能说明 | 认证级别 |
 | :--- | :--- | :--- | :--- |
+| `GET` | `/api/documents/meta` | 获取知识库文档模块全局枚举字典与配置元数据 (SSOT) | 需登录 (JWT) |
 | `POST` | `/api/documents/upload-sign` | 获取 Cloudflare R2 预签名上传凭证 | 需登录 (JWT) |
-| `POST` | `/api/documents` | 直传 R2 完成后提交元数据落库保存 | 需登录 (JWT) |
-| `GET` | `/api/documents` | 分页多维条件查询文档列表 | 需登录 (含数据权限过滤) |
-| `GET` | `/api/documents/:code` | 根据业务编码获取文档详情及审批轨迹 | 需登录 |
-| `DELETE`| `/api/documents/:code` | 根据编码彻底删除文档与云端物理存储 | 需登录 (限超管或创建者) |
+| `POST` | `/api/documents` | 直传 R2 完成后提交元数据落库保存 (初始置为草稿) | 需登录 (JWT) |
+| `POST` | `/api/documents/:code/submit` | 提交文档审核（从草稿流转到待审核，记录提交履历） | 需登录 (限创建者或超管) |
+| `POST` | `/api/documents/:code/audit` | 审核文档（通过/驳回，并流转状态与历史快照） | 需登录 (限审核员或超管) |
+| `GET` | `/api/documents` | 分页多维条件查询文档列表 (支持 status/keyword 等过滤) | 需登录 (含数据权限过滤) |
+| `GET` | `/api/documents/:code` | 根据业务编码获取文档详情及完整审批轨迹 (Timeline) | 需登录 |
+| `DELETE`| `/api/documents/:code` | 根据编码彻底删除文档与云端物理存储及流转日志 | 需登录 (限超管或创建者) |
 | `GET` | `/api/documents/access-url`| 获取私有文档的临时带鉴权预览下载链接 | 需登录 |
 
 ---
@@ -184,11 +217,17 @@ VectorStatus (向量化状态):
   - Cloudflare R2 预签名客户端直传闭环；
   - 双主键实体与审批单表架构落地；
   - 前后端分页联调、状态枚举统一与删除联动。
-- [ ] **v1.1 (计划中)**：
-  - 联动 Python AI 服务，实现文档直传后的自动化全文解析与合规走查；
-  - 接入敏感词库，对包含弱密码或机密凭据的文档自动置为 `MANUAL_REVIEWING`。
+- [x] **v1.1 (已完成)**：
+  - 文档初始状态收敛为草稿 (`DRAFT` / `INIT`)，杜绝未审先发布；
+  - 完善从草稿「提交审核」至「待审核」的状态流转机制；
+  - 提供审核动作 API（通过/驳回）及操作日志全链路审计（Audit Trail）；
+  - 落地企业级全局枚举单一真实来源（SSOT & Meta API）；
+  - 前端打造双重视角工作台（知识库文档列表 + 待审核文档工作台）。
 - [ ] **v1.2 (计划中)**：
+  - 联动 Python AI 服务，实现文档提交后的自动化全文解析与合规走查；
+  - 接入敏感词库，对包含弱密码或机密凭据的文档自动置为 `MANUAL_REVIEWING`。
+- [ ] **v1.3 (计划中)**：
   - 基于 LangChain / pgvector 实现自动化文本切片（Chunking）；
   - 写入向量元数据，支持多租户基于部门的数据预过滤 RAG 问答。
-- [ ] **v1.3 (规划中)**：
+- [ ] **v1.4 (规划中)**：
   - 增加 Cloudflare R2 孤儿文件定时对账与自动清理 Job。
