@@ -22,10 +22,14 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor'
 import { isDev, isMainProcess } from './global/env'
 import { setupSwagger } from './setup-swagger'
 import { LoggerService } from './shared/logger/logger.service'
+import { loadInfisicalSecrets } from './shared/infisical'
 
 declare const module: any
 
 async function bootstrap() {
+  // 1. 优先从私有 Infisical 云端拉取最新配置注入内存
+  await loadInfisicalSecrets()
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     fastifyApp,

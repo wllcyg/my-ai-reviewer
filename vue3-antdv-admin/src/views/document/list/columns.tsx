@@ -1,4 +1,4 @@
-import { Tag, Badge } from 'ant-design-vue';
+import { Tag, Badge, Tooltip } from 'ant-design-vue';
 import type { TableColumn } from '@/components/core/dynamic-table';
 
 export interface DocumentItem {
@@ -8,6 +8,8 @@ export interface DocumentItem {
   category: string;
   deptName: string;
   scope: 'PUBLIC' | 'DEPT' | 'PRIVATE';
+  visibleDeptIds?: number[];
+  visibleDeptNames?: string[];
   sizeStr: string;
   chunkCount: number;
   vectorStatus: 'READY' | 'PARSING' | 'FAILED' | 'PENDING';
@@ -15,6 +17,8 @@ export interface DocumentItem {
   reviewScore: number;
   author: string;
   updatedAt: string;
+  storageKey?: string;
+  publicUrl?: string;
   issues?: Array<{
     line: number;
     type: string;
@@ -32,6 +36,38 @@ export const categoryOptions = [
   { label: '财务制度', value: '财务制度' },
   { label: '安全合规', value: '安全合规' },
   { label: '产品说明', value: '产品说明' },
+];
+
+/** 用户可授权的管辖部门树结构 (支持多选) */
+export const authorizedDeptTree = [
+  {
+    title: '技术中心 (总部)',
+    value: 100,
+    key: 100,
+    children: [
+      { title: '前端架构组', value: 101, key: 101 },
+      { title: 'AI 研发与算法组', value: 102, key: 102 },
+      { title: '运维与基础设施组', value: 103, key: 103 },
+    ],
+  },
+  {
+    title: '安全合规部',
+    value: 200,
+    key: 200,
+    children: [
+      { title: '数据安全组', value: 201, key: 201 },
+      { title: '法务合规组', value: 202, key: 202 },
+    ],
+  },
+  {
+    title: '行政与财务中心',
+    value: 300,
+    key: 300,
+    children: [
+      { title: '财务部', value: 301, key: 301 },
+      { title: 'HR 人力资源部', value: 302, key: 302 },
+    ],
+  },
 ];
 
 export const vectorStatusOptions = [
@@ -118,11 +154,23 @@ export const getDocumentColumns = (actions: {
   {
     title: '可见范围',
     dataIndex: 'scope',
-    width: 140,
+    width: 170,
     hideInSearch: true,
     customRender: ({ record }) => {
       if (record.scope === 'PUBLIC') return <Tag color="green">全员公开</Tag>;
-      if (record.scope === 'DEPT') return <Tag color="blue">部门内部 ({record.deptName})</Tag>;
+      if (record.scope === 'DEPT') {
+        const deptNames = record.visibleDeptNames?.length
+          ? record.visibleDeptNames.join('、')
+          : record.deptName;
+        const count = record.visibleDeptNames?.length || 1;
+        return (
+          <Tooltip title={`允许查看部门: ${deptNames}`}>
+            <Tag color="blue" class="cursor-pointer">
+              指定部门 ({count})
+            </Tag>
+          </Tooltip>
+        );
+      }
       return <Tag color="purple">私密文档</Tag>;
     },
   },

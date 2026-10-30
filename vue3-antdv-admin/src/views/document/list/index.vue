@@ -101,55 +101,11 @@
       </template>
     </DynamicTable>
 
-    <!-- 3. 上传文档弹窗 -->
-    <a-modal
+    <!-- 3. 上传文档弹窗组件 (集成 Cloudflare R2 预签名直传) -->
+    <DocumentUploadModal
       v-model:open="uploadModalVisible"
-      title="上传新文档到知识库"
-      :confirm-loading="uploadSubmitting"
-      class="rounded-2xl"
-      @ok="handleConfirmUpload"
-      @cancel="uploadModalVisible = false"
-    >
-      <a-form layout="vertical" :model="uploadForm" class="pt-2">
-        <a-form-item label="文档标题" required>
-          <a-input v-model:value="uploadForm.title" placeholder="如：2026年度财务报销与出差规范" class="rounded-lg" />
-        </a-form-item>
-
-        <a-form-item label="文档分类" required>
-          <a-select v-model:value="uploadForm.category" placeholder="请选择分类" :options="categoryOptions" class="rounded-lg" />
-        </a-form-item>
-
-        <a-form-item label="访问权限范围" required>
-          <a-radio-group v-model:value="uploadForm.scope">
-            <a-radio value="PUBLIC">全员公开 (公共知识库)</a-radio>
-            <a-radio value="DEPT">本部门可见</a-radio>
-            <a-radio value="PRIVATE">私密文档 (仅授权人)</a-radio>
-          </a-radio-group>
-        </a-form-item>
-
-        <a-form-item label="上传文件 (支持 PDF, Word, Markdown, TXT)">
-          <a-upload-dragger
-            v-model:fileList="fileList"
-            :max-count="1"
-            :before-upload="() => false"
-            class="rounded-xl"
-          >
-            <p class="ant-upload-drag-icon text-indigo-500">
-              <InboxOutlined />
-            </p>
-            <p class="ant-upload-text font-medium text-slate-700">点击或将文件拖拽到此区域上传</p>
-            <p class="ant-upload-hint text-xs text-slate-400">
-              单文件大小不超过 50MB。上传后系统将自动由后台进行文档语义切片与 AI 合规审核。
-            </p>
-          </a-upload-dragger>
-        </a-form-item>
-
-        <div class="bg-indigo-50/60 border border-indigo-100 p-3 rounded-xl text-xs text-indigo-700 flex items-center gap-2">
-          <RobotOutlined class="text-base text-indigo-600" />
-          <span>上传后后台将自动派发切片向量化任务，并同步调用大模型进行合规风险扫描。</span>
-        </div>
-      </a-form>
-    </a-modal>
+      @success="handleUploadSuccess"
+    />
 
     <!-- 4. AI 审核报告抽屉 -->
     <a-drawer
@@ -217,7 +173,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, reactive, computed } from 'vue';
+  import { ref, computed } from 'vue';
   import { message } from 'ant-design-vue';
   import {
     FileTextOutlined,
@@ -227,12 +183,11 @@
     UploadOutlined,
     SyncOutlined,
     CheckCircleOutlined,
-    InboxOutlined,
   } from '@ant-design/icons-vue';
   import { useTable, type LoadDataParams } from '@/components/core/dynamic-table';
+  import DocumentUploadModal from './components/DocumentUploadModal.vue';
   import {
     getDocumentColumns,
-    categoryOptions,
     type DocumentItem,
   } from './columns';
 
@@ -274,6 +229,8 @@
       category: '财务制度',
       deptName: '财务部',
       scope: 'DEPT',
+      visibleDeptIds: [301, 302],
+      visibleDeptNames: ['财务部', 'HR 人力资源部'],
       sizeStr: '2.4 MB',
       chunkCount: 18,
       vectorStatus: 'READY',
@@ -304,8 +261,10 @@
       title: '生产环境数据库跳板机访问与密码轮换细则.pdf',
       extension: 'pdf',
       category: '安全合规',
-      deptName: '运维安全组',
+      deptName: '运维与基础设施组',
       scope: 'DEPT',
+      visibleDeptIds: [103, 201],
+      visibleDeptNames: ['运维与基础设施组', '数据安全组'],
       sizeStr: '1.2 MB',
       chunkCount: 14,
       vectorStatus: 'READY',
@@ -431,58 +390,16 @@
     };
   };
 
-  // 8. 上传文档弹窗
+  // 8. 上传文档弹窗状态与事件响应
   const uploadModalVisible = ref(false);
-  const uploadSubmitting = ref(false);
-  const fileList = ref<any[]>([]);
-  const uploadForm = reactive({
-    title: '',
-    category: undefined as string | undefined,
-    scope: 'PUBLIC' as 'PUBLIC' | 'DEPT' | 'PRIVATE',
-  });
 
   const openUploadModal = () => {
-    uploadForm.title = '';
-    uploadForm.category = undefined;
-    uploadForm.scope = 'PUBLIC';
-    fileList.value = [];
     uploadModalVisible.value = true;
   };
 
-  const handleConfirmUpload = () => {
-    if (!uploadForm.title) {
-      message.warning('请输入文档标题');
-      return;
-    }
-    if (!uploadForm.category) {
-      message.warning('请选择文档分类');
-      return;
-    }
-
-    uploadSubmitting.value = true;
-    setTimeout(() => {
-      uploadSubmitting.value = false;
-      uploadModalVisible.value = false;
-      const newDoc: DocumentItem = {
-        id: Date.now(),
-        title: `${uploadForm.title}.pdf`,
-        extension: 'pdf',
-        category: uploadForm.category!,
-        deptName: '技术中心',
-        scope: uploadForm.scope,
-        sizeStr: '320 KB',
-        chunkCount: 5,
-        vectorStatus: 'PARSING',
-        reviewStatus: 'REVIEWING',
-        reviewScore: 0,
-        author: '当前用户',
-        updatedAt: '刚刚',
-        issues: [],
-      };
-      rawDocumentList.value.unshift(newDoc);
-      message.success('文档已入库，后台正在自动切片向量化与 AI 合规审核');
-      dynamicTableInstance?.reload();
-    }, 600);
+  const handleUploadSuccess = (newDoc: DocumentItem) => {
+    rawDocumentList.value.unshift(newDoc);
+    dynamicTableInstance?.reload();
   };
 </script>
 

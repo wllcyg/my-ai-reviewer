@@ -2,6 +2,8 @@
 
 从零开始的 **AI Agent 学习与实战演练** 项目，基于 **FastAPI** 和 **uv** 构建。
 
+> 📖 **项目全景与开发规范**：详见 [PROJECT_ARCHITECTURE.md](./PROJECT_ARCHITECTURE.md)，涵盖全栈系统拓扑、前后端架构标准与 AI 协作规范。
+
 ## 快速开始
 
 ### 1. 安装依赖
