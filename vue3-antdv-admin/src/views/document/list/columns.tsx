@@ -3,17 +3,20 @@ import type { TableColumn } from '@/components/core/dynamic-table';
 
 export interface DocumentItem {
   id: number;
+  docCode?: string;
   title: string;
+  fileName?: string;
   extension: 'pdf' | 'docx' | 'md' | 'txt' | string;
   category: string;
-  deptName: string;
+  deptName?: string;
   scope: 'PUBLIC' | 'DEPT' | 'PRIVATE';
   visibleDeptIds?: number[];
   visibleDeptNames?: string[];
+  fileSize?: number;
   sizeStr: string;
   chunkCount: number;
-  vectorStatus: 'READY' | 'PARSING' | 'FAILED' | 'PENDING';
-  reviewStatus: 'APPROVED' | 'REVIEWING' | 'REJECTED' | 'PENDING';
+  vectorStatus: 'unprocessed' | 'processing' | 'completed' | 'failed' | string;
+  reviewStatus: 'INIT' | 'AI_REVIEWING' | 'MANUAL_REVIEWING' | 'APPROVED' | 'REJECTED' | string;
   reviewScore: number;
   author: string;
   updatedAt: string;
@@ -71,17 +74,18 @@ export const authorizedDeptTree = [
 ];
 
 export const vectorStatusOptions = [
-  { label: '已就绪 (可检索)', value: 'READY' },
-  { label: '分块切片中 (PARSING)', value: 'PARSING' },
-  { label: '未解析 (PENDING)', value: 'PENDING' },
-  { label: '解析失败 (FAILED)', value: 'FAILED' },
+  { label: '已就绪 (可检索)', value: 'completed' },
+  { label: '切片向量化中', value: 'processing' },
+  { label: '未解析', value: 'unprocessed' },
+  { label: '解析失败', value: 'failed' },
 ];
 
 export const reviewStatusOptions = [
   { label: '审核通过', value: 'APPROVED' },
-  { label: 'AI 走查中', value: 'REVIEWING' },
-  { label: '存在违规风险', value: 'REJECTED' },
-  { label: '待审核', value: 'PENDING' },
+  { label: 'AI 初审中', value: 'AI_REVIEWING' },
+  { label: '待人工复核', value: 'MANUAL_REVIEWING' },
+  { label: '已驳回', value: 'REJECTED' },
+  { label: '草稿/未提交', value: 'INIT' },
 ];
 
 const categoryColorMap: Record<string, string> = {
@@ -98,34 +102,38 @@ export const getDocumentColumns = (actions: {
   onDelete: (record: DocumentItem) => void;
 }): DocumentColumnItem[] => [
   {
-    title: '文档名称',
+    title: '文档名称与格式',
     dataIndex: 'title',
-    width: 320,
-    searchField: 'keyword',
-    formItemProps: {
-      component: 'Input',
-      componentProps: {
-        placeholder: '输入文档标题或关键字搜索',
-        allowClear: true,
-      },
-    },
+    width: 280,
     customRender: ({ record }) => {
-      const extClass = `ext-${record.extension.toLowerCase()}`;
+      const ext = (record.extension || 'pdf').toLowerCase();
+      let iconColor = 'bg-red-50 text-red-600 border-red-200';
+      if (ext === 'docx' || ext === 'doc') {
+        iconColor = 'bg-blue-50 text-blue-600 border-blue-200';
+      } else if (ext === 'md' || ext === 'txt') {
+        iconColor = 'bg-emerald-50 text-emerald-600 border-emerald-200';
+      }
+
       return (
-        <div class="flex items-center gap-2.5">
-          <span class={`file-ext-tag ${extClass}`}>
-            {record.extension.toUpperCase()}
-          </span>
-          <div>
-            <a
-              class="font-medium text-slate-900 hover:text-blue-600 transition-colors"
-              onClick={() => actions.onOpenReport(record)}
-            >
+        <div class="flex items-center gap-3">
+          <div
+            class={`w-10 h-10 rounded-xl border flex flex-col items-center justify-center font-bold text-[11px] shrink-0 uppercase tracking-tighter ${iconColor}`}
+          >
+            <span>{ext}</span>
+          </div>
+          <div class="flex flex-col min-w-0">
+            <span class="font-semibold text-slate-800 text-sm truncate hover:text-indigo-600 cursor-pointer transition-colors" title={record.title}>
               {record.title}
-            </a>
-            <div class="text-xs text-slate-400 mt-0.5">
-              大小: {record.sizeStr} · {record.chunkCount} 个切片向量
-            </div>
+            </span>
+            <span class="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+              <span>{record.sizeStr}</span>
+              {record.chunkCount > 0 && (
+                <>
+                  <span class="text-slate-300">•</span>
+                  <span>{record.chunkCount} 切片块</span>
+                </>
+              )}
+            </span>
           </div>
         </div>
       );
@@ -146,7 +154,7 @@ export const getDocumentColumns = (actions: {
     customRender: ({ record }) => {
       return (
         <Tag color={categoryColorMap[record.category] || 'default'}>
-          {record.category}
+          {record.category || '通用'}
         </Tag>
       );
     },
@@ -161,7 +169,7 @@ export const getDocumentColumns = (actions: {
       if (record.scope === 'DEPT') {
         const deptNames = record.visibleDeptNames?.length
           ? record.visibleDeptNames.join('、')
-          : record.deptName;
+          : record.deptName || '指定部门';
         const count = record.visibleDeptNames?.length || 1;
         return (
           <Tooltip title={`允许查看部门: ${deptNames}`}>
@@ -187,13 +195,14 @@ export const getDocumentColumns = (actions: {
       },
     },
     customRender: ({ record }) => {
-      if (record.vectorStatus === 'READY') {
+      const vs = record.vectorStatus;
+      if (vs === 'completed' || vs === 'READY') {
         return <Badge status="success" text="已就绪 (可检索)" />;
       }
-      if (record.vectorStatus === 'PARSING') {
+      if (vs === 'processing' || vs === 'PARSING') {
         return <Badge status="processing" text="正在分块切片..." />;
       }
-      if (record.vectorStatus === 'FAILED') {
+      if (vs === 'failed' || vs === 'FAILED') {
         return <Badge status="error" text="解析失败" />;
       }
       return <Badge status="default" text="未解析" />;
@@ -212,16 +221,21 @@ export const getDocumentColumns = (actions: {
       },
     },
     customRender: ({ record }) => {
-      if (record.reviewStatus === 'APPROVED') {
-        return <Tag color="success">审核通过 ({record.reviewScore}分)</Tag>;
+      const rs = record.reviewStatus;
+      if (rs === 'APPROVED') {
+        const scoreStr = record.reviewScore ? ` (${record.reviewScore}分)` : '';
+        return <Tag color="success">审核通过{scoreStr}</Tag>;
       }
-      if (record.reviewStatus === 'REVIEWING') {
-        return <Tag color="processing">AI 走查中...</Tag>;
+      if (rs === 'AI_REVIEWING' || rs === 'REVIEWING') {
+        return <Tag color="processing">AI 初审中...</Tag>;
       }
-      if (record.reviewStatus === 'REJECTED') {
-        return <Tag color="error">存在违规风险</Tag>;
+      if (rs === 'MANUAL_REVIEWING') {
+        return <Tag color="warning">待人工复核</Tag>;
       }
-      return <Tag>待审核</Tag>;
+      if (rs === 'REJECTED') {
+        return <Tag color="error">已驳回</Tag>;
+      }
+      return <Tag>草稿/未提交</Tag>;
     },
   },
   {

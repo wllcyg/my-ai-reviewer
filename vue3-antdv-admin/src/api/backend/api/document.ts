@@ -15,6 +15,54 @@ export interface UploadSignResult {
   expiresIn: number;
 }
 
+export interface CreateDocumentParams {
+  title: string;
+  category?: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  storageKey: string;
+  publicUrl?: string;
+  scope?: 'PUBLIC' | 'DEPT' | 'PRIVATE';
+  visibleDeptIds?: number[];
+  visibleDeptNames?: string[];
+}
+
+export interface QueryDocumentParams {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  category?: string;
+  status?: string;
+  reviewStatus?: string;
+  vectorStatus?: string;
+  scope?: string;
+}
+
+export interface DocumentItemEntity {
+  id: number;
+  docCode: string;
+  title: string;
+  category?: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  storageKey: string;
+  publicUrl?: string;
+  scope: 'PUBLIC' | 'DEPT' | 'PRIVATE';
+  visibleDeptIds?: number[];
+  visibleDeptNames?: string[];
+  status: string;
+  reviewStatus: 'INIT' | 'AI_REVIEWING' | 'MANUAL_REVIEWING' | 'APPROVED' | 'REJECTED';
+  reviewScore?: number;
+  reviewRemark?: string;
+  vectorStatus: 'unprocessed' | 'processing' | 'completed' | 'failed';
+  createBy?: number;
+  creator?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** 获取文档直传 Cloudflare R2 预签名凭据 POST /api/documents/upload-sign */
 export async function documentGetUploadSign(
   body: GenerateUploadSignParams,
@@ -26,6 +74,55 @@ export async function documentGetUploadSign(
       'Content-Type': 'application/json',
     },
     data: body,
+    ...(options || {}),
+  });
+}
+
+/** 直传 R2 完成后提交落库保存 POST /api/documents */
+export async function documentCreate(
+  body: CreateDocumentParams,
+  options?: RequestOptions,
+) {
+  return request<DocumentItemEntity>('/api/documents', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  });
+}
+
+/** 分页获取知识库文档列表 GET /api/documents */
+export async function documentList(
+  params?: QueryDocumentParams,
+  options?: RequestOptions,
+) {
+  return request<{ items: DocumentItemEntity[]; total: number }>('/api/documents', {
+    method: 'GET',
+    params,
+    ...(options || {}),
+  });
+}
+
+/** 根据业务编码获取文档详情与审批流转历史 GET /api/documents/:code */
+export async function documentDetail(
+  code: string,
+  options?: RequestOptions,
+) {
+  return request<{ document: DocumentItemEntity; approvalHistory: any[] }>(`/api/documents/${code}`, {
+    method: 'GET',
+    ...(options || {}),
+  });
+}
+
+/** 根据业务编码删除文档及清理 R2 存储 DELETE /api/documents/:code */
+export async function documentDelete(
+  code: string,
+  options?: RequestOptions,
+) {
+  return request<void>(`/api/documents/${code}`, {
+    method: 'DELETE',
     ...(options || {}),
   });
 }

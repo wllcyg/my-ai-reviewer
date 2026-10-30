@@ -173,7 +173,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, computed } from 'vue';
+  import { ref, reactive, computed } from 'vue';
   import { message } from 'ant-design-vue';
   import {
     FileTextOutlined,
@@ -185,6 +185,7 @@
     CheckCircleOutlined,
   } from '@ant-design/icons-vue';
   import { useTable, type LoadDataParams } from '@/components/core/dynamic-table';
+  import { documentList, documentDelete } from '@/api/backend/api/document';
   import DocumentUploadModal from './components/DocumentUploadModal.vue';
   import {
     getDocumentColumns,
@@ -204,112 +205,14 @@
     },
   });
 
-  // 2. 模拟本地持久数据源 (对接后端 API 后直接替换为 Api.document.list)
-  const rawDocumentList = ref<DocumentItem[]>([
-    {
-      id: 1,
-      title: '公司打卡与弹性工作制规范.docx',
-      extension: 'docx',
-      category: '人事行政',
-      deptName: 'HR部',
-      scope: 'PUBLIC',
-      sizeStr: '128 KB',
-      chunkCount: 6,
-      vectorStatus: 'READY',
-      reviewStatus: 'APPROVED',
-      reviewScore: 96,
-      author: 'HR管理员',
-      updatedAt: '2026-10-28 10:20',
-      issues: [],
-    },
-    {
-      id: 2,
-      title: '差旅报销与住宿补贴标准.pdf',
-      extension: 'pdf',
-      category: '财务制度',
-      deptName: '财务部',
-      scope: 'DEPT',
-      visibleDeptIds: [301, 302],
-      visibleDeptNames: ['财务部', 'HR 人力资源部'],
-      sizeStr: '2.4 MB',
-      chunkCount: 18,
-      vectorStatus: 'READY',
-      reviewStatus: 'APPROVED',
-      reviewScore: 92,
-      author: '财务部出纳',
-      updatedAt: '2026-10-27 15:45',
-      issues: [],
-    },
-    {
-      id: 3,
-      title: '前端代码规范与发版门禁流程.md',
-      extension: 'md',
-      category: '技术规范',
-      deptName: '技术中心',
-      scope: 'PUBLIC',
-      sizeStr: '45 KB',
-      chunkCount: 8,
-      vectorStatus: 'READY',
-      reviewStatus: 'APPROVED',
-      reviewScore: 98,
-      author: '前端架构组',
-      updatedAt: '2026-10-28 09:12',
-      issues: [],
-    },
-    {
-      id: 4,
-      title: '生产环境数据库跳板机访问与密码轮换细则.pdf',
-      extension: 'pdf',
-      category: '安全合规',
-      deptName: '运维与基础设施组',
-      scope: 'DEPT',
-      visibleDeptIds: [103, 201],
-      visibleDeptNames: ['运维与基础设施组', '数据安全组'],
-      sizeStr: '1.2 MB',
-      chunkCount: 14,
-      vectorStatus: 'READY',
-      reviewStatus: 'REJECTED',
-      reviewScore: 68,
-      author: '运维负责人',
-      updatedAt: '2026-10-28 14:05',
-      issues: [
-        {
-          line: 35,
-          type: '敏感凭证泄露风险',
-          level: 'HIGH',
-          snippet: '临时测试跳板机 root 默认弱口令为 123456',
-          suggestion: '请彻底移除明文密码，改为引用统一密码管理器或 MFA 指引。',
-        },
-      ],
-    },
-    {
-      id: 5,
-      title: 'My AI Reviewer 智能代码走查助手接口说明.md',
-      extension: 'md',
-      category: '产品说明',
-      deptName: 'AI研发组',
-      scope: 'PUBLIC',
-      sizeStr: '88 KB',
-      chunkCount: 9,
-      vectorStatus: 'PARSING',
-      reviewStatus: 'REVIEWING',
-      reviewScore: 0,
-      author: 'AI研发员',
-      updatedAt: '2026-10-28 15:10',
-      issues: [],
-    },
-  ]);
 
-  // 3. 统计指标计算
-  const stats = computed(() => {
-    const total = rawDocumentList.value.length;
-    const vectorReady = rawDocumentList.value.filter((d) => d.vectorStatus === 'READY').length;
-    const approved = rawDocumentList.value.filter((d) => d.reviewStatus === 'APPROVED').length;
-    const passRate = total > 0 ? Math.round((approved / total) * 100) : 0;
-    const riskCount = rawDocumentList.value.filter(
-      (d) => d.reviewStatus === 'REJECTED' || d.reviewStatus === 'REVIEWING',
-    ).length;
-    return { total, vectorReady, passRate, riskCount };
+
+  // 3. 统计指标响应式数据
+  const stats = reactive({
+    total: 0,
+    vectorReady: 0,
+    passRate: 100,
+    riskCount: 0,
   });
 
   // 4. 表格多选支持
@@ -340,10 +243,16 @@
     }, 1800);
   };
 
-  const handleDelete = (record: DocumentItem) => {
-    rawDocumentList.value = rawDocumentList.value.filter((item) => item.id !== record.id);
-    message.success('已删除文档及其向量索引');
-    dynamicTableInstance?.reload();
+  const handleDelete = async (record: DocumentItem) => {
+    try {
+      if (record.docCode) {
+        await documentDelete(record.docCode);
+      }
+      message.success('已从知识库中彻底删除该文档及对象存储文件');
+      dynamicTableInstance?.reload();
+    } catch (err: any) {
+      message.error(`删除失败: ${err?.message || '未知错误'}`);
+    }
   };
 
   const handleBatchReVector = () => {
@@ -358,36 +267,79 @@
     onDelete: handleDelete,
   });
 
-  // 7. DynamicTable 数据加载器 (自动接收搜索表单参数 params 进行分页过滤)
+  // 格式化文件大小
+  const formatFileSize = (bytes: number): string => {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+  };
+
+  // 7. DynamicTable 数据加载器 (调用后端真实分页 API)
   const loadTableData = async (params: LoadDataParams & Record<string, any>) => {
     const { keyword, category, vectorStatus, reviewStatus, page = 1, pageSize = 10 } = params;
 
-    let filtered = rawDocumentList.value;
-    if (keyword) {
-      filtered = filtered.filter((item) =>
-        item.title.toLowerCase().includes(keyword.trim().toLowerCase()),
-      );
-    }
-    if (category) {
-      filtered = filtered.filter((item) => item.category === category);
-    }
-    if (vectorStatus) {
-      filtered = filtered.filter((item) => item.vectorStatus === vectorStatus);
-    }
-    if (reviewStatus) {
-      filtered = filtered.filter((item) => item.reviewStatus === reviewStatus);
-    }
+    try {
+      const res = await documentList({
+        page,
+        pageSize,
+        keyword,
+        category,
+        vectorStatus,
+        reviewStatus,
+      });
 
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-    const items = filtered.slice(start, end);
+      const rawItems = res?.items || [];
+      const total = res?.total || 0;
 
-    return {
-      items,
-      total: filtered.length,
-      page,
-      pageSize,
-    };
+      const items: DocumentItem[] = rawItems.map((doc: any) => ({
+        id: doc.id,
+        docCode: doc.docCode,
+        title: doc.title,
+        fileName: doc.fileName,
+        extension: doc.fileType || 'pdf',
+        category: doc.category || '通用',
+        deptName: doc.visibleDeptNames?.[0] || '技术中心',
+        scope: doc.scope,
+        visibleDeptIds: doc.visibleDeptIds,
+        visibleDeptNames: doc.visibleDeptNames,
+        sizeStr: formatFileSize(doc.fileSize),
+        chunkCount: Math.ceil(doc.fileSize / (100 * 1024)) || 1,
+        vectorStatus: doc.vectorStatus || 'unprocessed',
+        reviewStatus: doc.reviewStatus || 'APPROVED',
+        reviewScore: Number(doc.reviewScore) || 95,
+        author: doc.creator || '系统',
+        updatedAt: doc.updatedAt ? doc.updatedAt.replace('T', ' ').substring(0, 16) : '刚刚',
+        storageKey: doc.storageKey,
+        publicUrl: doc.publicUrl,
+        issues: [],
+      }));
+
+      // 更新顶部统计面板
+      stats.total = total;
+      stats.vectorReady = items.filter((d) => d.vectorStatus === 'completed' || d.vectorStatus === 'READY').length;
+      const approved = items.filter((d) => d.reviewStatus === 'APPROVED').length;
+      stats.passRate = items.length > 0 ? Math.round((approved / items.length) * 100) : 100;
+      stats.riskCount = items.filter(
+        (d) => d.reviewStatus === 'REJECTED' || d.reviewStatus === 'MANUAL_REVIEWING',
+      ).length;
+
+      return {
+        items,
+        total,
+        page,
+        pageSize,
+      };
+    } catch (err: any) {
+      console.error('加载文档列表异常:', err);
+      return {
+        items: [],
+        total: 0,
+        page,
+        pageSize,
+      };
+    }
   };
 
   // 8. 上传文档弹窗状态与事件响应
@@ -397,8 +349,7 @@
     uploadModalVisible.value = true;
   };
 
-  const handleUploadSuccess = (newDoc: DocumentItem) => {
-    rawDocumentList.value.unshift(newDoc);
+  const handleUploadSuccess = () => {
     dynamicTableInstance?.reload();
   };
 </script>

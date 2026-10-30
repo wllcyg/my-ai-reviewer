@@ -100,7 +100,7 @@
   import { message, TreeSelect, type UploadProps } from 'ant-design-vue';
   import { InboxOutlined, RobotOutlined, LoadingOutlined } from '@ant-design/icons-vue';
   import axios from 'axios';
-  import { documentGetUploadSign } from '@/api/backend/api/document';
+  import { documentGetUploadSign, documentCreate } from '@/api/backend/api/document';
   import { categoryOptions, authorizedDeptTree, type DocumentItem } from '../columns';
 
   defineOptions({
@@ -251,28 +251,43 @@
         },
       });
 
-      message.success('文档已成功直传至 Cloudflare R2，后台正进行切片与智能审核！');
-
-      // 3. 构建新入库文档记录 (携带精确可见部门权限元数据)
+      // 3. 调用后端落库接口持久化到 MySQL
       const ext = rawFile.name.split('.').pop()?.toLowerCase() || 'pdf';
-      const newDoc: DocumentItem = {
-        id: Date.now(),
-        title: rawFile.name,
-        extension: ext,
+      const savedDoc = await documentCreate({
+        title: uploadForm.title.trim(),
         category: uploadForm.category,
-        deptName: selectedDeptNames[0] || '技术中心',
-        scope: uploadForm.scope,
-        visibleDeptIds: uploadForm.scope === 'DEPT' ? [...uploadForm.visibleDeptIds] : undefined,
-        visibleDeptNames: uploadForm.scope === 'DEPT' ? selectedDeptNames : undefined,
-        sizeStr: formatFileSize(rawFile.size),
-        chunkCount: Math.ceil(rawFile.size / (100 * 1024)) || 3, // 模拟切片数
-        vectorStatus: 'PARSING',
-        reviewStatus: 'REVIEWING',
-        reviewScore: 0,
-        author: '当前用户',
-        updatedAt: '刚刚',
+        fileName: rawFile.name,
+        fileSize: rawFile.size,
+        fileType: ext,
         storageKey,
         publicUrl,
+        scope: uploadForm.scope as any,
+        visibleDeptIds: uploadForm.scope === 'DEPT' ? uploadForm.visibleDeptIds : [],
+        visibleDeptNames: uploadForm.scope === 'DEPT' ? selectedDeptNames : [],
+      });
+
+      message.success('文档已成功直传并入库，后台正在流转审批与向量化！');
+
+      const newDoc: DocumentItem = {
+        id: savedDoc.id,
+        docCode: savedDoc.docCode,
+        title: savedDoc.title,
+        fileName: savedDoc.fileName,
+        extension: ext,
+        category: savedDoc.category || uploadForm.category || '通用',
+        deptName: selectedDeptNames[0] || '技术中心',
+        scope: savedDoc.scope,
+        visibleDeptIds: savedDoc.visibleDeptIds,
+        visibleDeptNames: savedDoc.visibleDeptNames,
+        sizeStr: formatFileSize(savedDoc.fileSize),
+        chunkCount: Math.ceil(savedDoc.fileSize / (100 * 1024)) || 1,
+        vectorStatus: savedDoc.vectorStatus,
+        reviewStatus: savedDoc.reviewStatus,
+        reviewScore: savedDoc.reviewScore || 0,
+        author: savedDoc.creator || '当前用户',
+        updatedAt: '刚刚',
+        storageKey: savedDoc.storageKey,
+        publicUrl: savedDoc.publicUrl,
         issues: [],
       };
 

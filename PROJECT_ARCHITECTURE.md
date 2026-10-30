@@ -1,6 +1,9 @@
 # 🏗️ my-ai-reviewer 项目全景架构与技术规范 (Project Architecture)
 
 > **文档定位**：本文档为 `my-ai-reviewer` 全系统的顶层架构全景图，旨在为人类开发者与 AI 编程助手（AI Agents）提供全局上下文索引、各子系统技术选型、核心业务闭环及代码编写规范。在进行任何代码修改或新特性开发前，必须以此规范为基准。
+>
+> 📋 **业务模块 PRD 索引**：
+> - [知识库文档与生命周期管理模块 PRD (v1.0.0)](./docs/PRD_DOCUMENT_MODULE.md)
 
 ---
 
