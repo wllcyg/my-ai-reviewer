@@ -394,6 +394,56 @@ class Parser(Protocol):
 
 > `image_keys` 需要同步加入主方案 §5.1 的块字段表（§19）。
 
+### 7. 块唯一标识（Chunk ID）与向量库主键架构设计（核心决策）
+
+#### 7.1 为什么不采用“雪花算法 (Snowflake ID)”作为切片主键？
+在传统的分布式后台，雪花算法因 64 位整数递增被广泛用于订单号或表主键，但在 **RAG 文档向量切片** 场景下存在重大缺陷：
+1. **破坏幂等更新（无法就地 Upsert 覆盖）**：雪花 ID 强依赖当前毫秒时间戳与机器序列。同一个文档重新向量化（如管理员点击重新解析、或切块参数调整）时，每次运行都会算出**完全不同的全新雪花 ID**。向量库执行 `upsert` 时无法原地覆盖旧记录，必须先做全量删除；如果删除步骤失败，向量库将产生大量无法被追溯的旧切片垃圾与数据污染。
+2. **多节点分布式运维依赖**：雪花算法依赖协调分配各容器的 `WorkerId`（如依赖 Redis/ZK 注册），并且对容器服务器**时钟回拨**极其敏感，增加了 Python Worker 节点弹性伸缩时的运维复杂度。
+
+#### 7.2 为什么不直接用字符串 `doc_code_00001` 作为向量点 ID？
+部分主流向量数据库对主键类型有严格限制：
+- **Qdrant**：Point ID **仅支持 unsigned 64 位整型** 或 **标准 UUID 格式（UUIDv4/UUIDv5）**，直接传入 `doc_..._0001` 这类自定义字符串会直接报错拦截（R16）。
+- **Milvus / Zilliz**：若 Collection Schema 配置为 Int64 主键，同样不支持自定义字符串。
+
+#### 7.3 企业级标准解法：确定性 UUIDv5 + Metadata 复合架构
+
+采用 **“主键强兼容 + 语义归元数据”** 的双层结构：
+
+```text
+[业务标识] doc_code (doc_JOb25azDNslQ475n)
+    │
+    ▼ 派生规则: f"{doc_code}_v{doc_version}_{chunk_index:05d}"
+[切片业务键] chunk_id ("doc_JOb25azDNslQ475n_v1_00000")
+    │
+    ├─► 计算 UUIDv5(NAMESPACE, chunk_id) ──► 向量库主键 Point ID (如 Qdrant / Milvus)
+    │                                         (标准 UUID 格式，全局兼容，输入相同则结果恒定不变)
+    │
+    └─► 写入 Payload / Metadata ───────────► {"doc_code": "...", "chunk_id": "...", "page": 1, ...}
+                                              (供业务级过滤、按文档批量清理与 RAG 溯源回显)
+```
+
+**Python 端标准实现**：
+```python
+import uuid
+
+# 全局固定的命名空间（确保所有 Worker 与多环境计算出的 UUID 恒等）
+RAG_CHUNK_NAMESPACE = uuid.UUID('e15863d8-91bf-41d6-a004-ebe5f36efa7d')
+
+def derive_point_id(chunk_id: str) -> str:
+    """基于确定性 chunk_id 计算向量库兼容的标准 UUIDv5 主键"""
+    return str(uuid.uuid5(RAG_CHUNK_NAMESPACE, chunk_id))
+
+# 示例:
+# chunk_id: "doc_JOb25azDNslQ475n_v1_00000"
+# point_id: "7b4c4fae-3066-512c-9a1b-90f7d5668e14" -> 直接用作 Qdrant 点 ID
+```
+
+**核心优势**：
+- **天生幂等**：重试、重新切块时直接 `upsert` 原地覆盖，不需要先查先删，0 脏数据残留；
+- **全平台兼容**：完美通过 Qdrant、Chroma、Milvus 等所有向量数据库的主键类型校验；
+- **无状态计算**：算法纯本地计算，不依赖时钟、不依赖外部中心化 ID 发号器。
+
 ---
 
 ## 十一、限制、失败与降级
