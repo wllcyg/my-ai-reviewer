@@ -33,4 +33,3 @@ export class DocumentMetaDto {
   @ApiProperty({ type: [EnumOptionDto], description: '文档业务分类列表' })
   categories: EnumOptionDto[]
 }
-

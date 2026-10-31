@@ -1,4 +1,6 @@
+import type { DocumentScope } from '../document.entity'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
+
 import {
   IsArray,
   IsIn,
@@ -10,12 +12,13 @@ import {
   MaxLength,
   Min,
 } from 'class-validator'
-
 import { DocumentScopeEnum } from '../document.constant'
-import type { DocumentScope } from '../document.entity'
 
 export class CreateDocumentDto {
-  @ApiProperty({ description: '文档标题', example: '2026年企业研发规范与合规指南' })
+  @ApiProperty({
+    description: '文档标题',
+    example: '2026年企业研发规范与合规指南',
+  })
   @IsString({ message: '标题必须是字符串' })
   @IsNotEmpty({ message: '文档标题不能为空' })
   @MaxLength(255, { message: '标题长度不能超过 255 个字符' })
@@ -45,21 +48,39 @@ export class CreateDocumentDto {
   @MaxLength(50)
   fileType: string
 
-  @ApiProperty({ description: 'R2 存储路径 StorageKey', example: 'knowledge/docs/20261030/doc_xxx.pdf' })
+  @ApiProperty({
+    description: 'R2 存储路径 StorageKey',
+    example: 'knowledge/docs/20261030/doc_xxx.pdf',
+  })
   @IsString({ message: '存储Key必须是字符串' })
   @IsNotEmpty({ message: '存储Key不能为空' })
   @MaxLength(500)
   storageKey: string
 
-  @ApiPropertyOptional({ description: '文档访问公共URL' })
+  @ApiPropertyOptional({
+    description:
+      '文档访问公共URL（已废弃，服务端会根据 storageKey 重新生成，传值将被忽略）',
+    deprecated: true,
+  })
   @IsOptional()
   @IsString()
   @MaxLength(1000)
   publicUrl?: string
 
-  @ApiPropertyOptional({ description: '可见范围', enum: DocumentScopeEnum, default: DocumentScopeEnum.PUBLIC })
+  @ApiPropertyOptional({
+    description: '可见范围',
+    enum: DocumentScopeEnum,
+    default: DocumentScopeEnum.PUBLIC,
+  })
   @IsOptional()
-  @IsIn([DocumentScopeEnum.PUBLIC, DocumentScopeEnum.DEPT, DocumentScopeEnum.PRIVATE], { message: '可见范围必须为 PUBLIC/DEPT/PRIVATE' })
+  @IsIn(
+    [
+      DocumentScopeEnum.PUBLIC,
+      DocumentScopeEnum.DEPT,
+      DocumentScopeEnum.PRIVATE,
+    ],
+    { message: '可见范围必须为 PUBLIC/DEPT/PRIVATE' },
+  )
   scope?: DocumentScope
 
   @ApiPropertyOptional({ description: '指定可见部门ID列表', type: [Number] })
