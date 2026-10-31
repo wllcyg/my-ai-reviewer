@@ -99,8 +99,10 @@ export const defaultDocumentStatusOptions = [
 ];
 
 export const getDocumentColumns = (actions: {
-  onOpenReport: (record: DocumentItem) => void;
+  onOpenReport?: (record: DocumentItem) => void;
   onSubmitReview: (record: DocumentItem) => void;
+  onApprove: (record: DocumentItem) => void;
+  onReject: (record: DocumentItem) => void;
   onReVector: (record: DocumentItem) => void;
   onDelete: (record: DocumentItem) => void;
   meta?: DocumentMetaResult | null;
@@ -206,22 +208,7 @@ export const getDocumentColumns = (actions: {
       );
     },
   },
-  {
-    title: 'AI 审核状态',
-    dataIndex: 'reviewStatus',
-    width: 170,
-    hideInSearch: true,
-    customRender: ({ record }) => {
-      const rs = record.reviewStatus;
-      const found = reviewStatuses.find((r) => r.value === rs);
-      const scoreStr = (rs === 'APPROVED' && record.reviewScore) ? ` (${record.reviewScore}分)` : '';
-      return (
-        <Tag color={found?.color || 'default'}>
-          {found?.label || rs || '草稿/未提交'}{scoreStr}
-        </Tag>
-      );
-    },
-  },
+
   {
     title: '向量化状态 (RAG)',
     dataIndex: 'vectorStatus',
@@ -290,19 +277,36 @@ export const getDocumentColumns = (actions: {
             },
           ]
         : []),
-      {
-        label: '审核报告',
-        type: 'link',
-        onClick: () => actions.onOpenReport(record),
-      },
-      {
-        label: '重新向量化',
-        type: 'link',
-        onClick: () => actions.onReVector(record),
-      },
+      ...(record.status === 'UNDER_REVIEW'
+        ? [
+            {
+              label: '通过',
+              type: 'link' as const,
+              popConfirm: {
+                title: `确定要审核通过《${record.title}》并准予发布吗？`,
+                onConfirm: () => actions.onApprove(record),
+              },
+            },
+            {
+              label: '驳回',
+              type: 'link' as const,
+              danger: true,
+              onClick: () => actions.onReject(record),
+            },
+          ]
+        : []),
+      ...(record.status === 'PUBLISHED'
+        ? [
+            {
+              label: '重新向量化',
+              type: 'link' as const,
+              onClick: () => actions.onReVector(record),
+            },
+          ]
+        : []),
       {
         label: '删除',
-        type: 'link',
+        type: 'link' as const,
         danger: true,
         popConfirm: {
           title: '确定要从知识库和文档库中彻底删除该文档吗？',

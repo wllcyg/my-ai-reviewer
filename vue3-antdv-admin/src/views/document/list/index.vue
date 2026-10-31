@@ -130,7 +130,30 @@
       @success="handleUploadSuccess"
     />
 
-    <!-- 4. AI 审核报告抽屉 -->
+    <!-- 4. 驳回修改意见对话框 -->
+    <a-modal
+      v-model:open="rejectModalVisible"
+      title="驳回文档审核"
+      ok-text="确认驳回"
+      cancel-text="取消"
+      ok-type="danger"
+      @ok="handleConfirmReject"
+    >
+      <div class="space-y-3 py-2">
+        <div class="text-xs text-slate-500">
+          驳回后，文档将退回至草稿状态，提交人可根据您的修改意见重新编辑并再次提交。
+        </div>
+        <a-textarea
+          v-model:value="rejectComment"
+          placeholder="请输入详细的驳回原因或修改指引（必填）"
+          :rows="4"
+          :maxlength="300"
+          show-count
+        />
+      </div>
+    </a-modal>
+
+    <!-- 5. AI 审核报告抽屉 -->
     <a-drawer
       v-model:open="reportDrawerVisible"
       title="文档 AI 审核走查报告"
@@ -212,6 +235,7 @@
     documentList,
     documentDelete,
     documentSubmitReview,
+    documentAudit,
     documentGetMeta,
     type DocumentMetaResult,
   } from '@/api/backend/api/document';
@@ -316,6 +340,52 @@
     }
   };
 
+  // 审核通过处理 (UNDER_REVIEW 状态下触发)
+  const handleApprove = async (record: DocumentItem) => {
+    try {
+      if (!record.docCode) return;
+      await documentAudit(record.docCode, {
+        action: 'APPROVE',
+        comment: '审核通过，准予发布入库',
+      });
+      message.success(`《${record.title}》已审核通过并成功发布！`);
+      dynamicTableInstance?.reload();
+    } catch (err: any) {
+      message.error(`审核通过失败: ${err?.message || '未知错误'}`);
+    }
+  };
+
+  // 驳回修改处理 (UNDER_REVIEW 状态下触发)
+  const rejectModalVisible = ref(false);
+  const rejectComment = ref('');
+  const targetRejectDoc = ref<DocumentItem | null>(null);
+
+  const openRejectModal = (record: DocumentItem) => {
+    targetRejectDoc.value = record;
+    rejectComment.value = '';
+    rejectModalVisible.value = true;
+  };
+
+  const handleConfirmReject = async () => {
+    if (!targetRejectDoc.value?.docCode) return;
+    if (!rejectComment.value.trim()) {
+      message.warning('请填写驳回原因说明');
+      return;
+    }
+
+    try {
+      await documentAudit(targetRejectDoc.value.docCode, {
+        action: 'REJECT',
+        comment: rejectComment.value.trim(),
+      });
+      message.success(`《${targetRejectDoc.value.title}》已被驳回，退回至提交人草稿箱`);
+      rejectModalVisible.value = false;
+      dynamicTableInstance?.reload();
+    } catch (err: any) {
+      message.error(`驳回失败: ${err?.message || '未知错误'}`);
+    }
+  };
+
   const handleBatchReVector = () => {
     message.success(`已向向量后台提交 ${isCheckRows.value} 篇文档的重新切片任务`);
     rowSelection.value.selectedRowKeys = [];
@@ -324,8 +394,9 @@
   // 6. 传递给 DynamicTable 的列定义 (动态响应后端枚举元数据)
   const columns = computed(() =>
     getDocumentColumns({
-      onOpenReport: handleOpenReport,
       onSubmitReview: handleSubmitReview,
+      onApprove: handleApprove,
+      onReject: openRejectModal,
       onReVector: handleReVector,
       onDelete: handleDelete,
       meta: documentMeta.value,

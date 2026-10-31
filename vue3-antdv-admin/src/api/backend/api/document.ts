@@ -194,3 +194,46 @@ export async function documentGetMeta(options?: RequestOptions) {
     ...(options || {}),
   });
 }
+
+export interface QueryApprovalParams {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  action?: string;
+  nodeType?: string;
+  docCode?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface ApprovalRecordItem {
+  id: number;
+  docId: number;
+  docCode: string;
+  nodeType: string;
+  action: string;
+  operatorId?: number;
+  operatorName?: string;
+  comment?: string;
+  snapshotStatus?: string;
+  createdAt: string;
+  updatedAt: string;
+  docTitle?: string;
+  docCategory?: string;
+  docFileType?: string;
+  docFileSize?: number;
+  docStatus?: string;
+}
+
+/** 分页获取全局审批流转履历列表 GET /api/documents/approval-records */
+export async function documentApprovalRecordList(
+  params?: QueryApprovalParams,
+  options?: RequestOptions,
+) {
+  return request<{ items: ApprovalRecordItem[]; total: number }>('/api/documents/approval-records', {
+    method: 'GET',
+    params,
+    ...(options || {}),
+  });
+}
+

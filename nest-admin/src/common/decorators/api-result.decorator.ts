@@ -64,9 +64,10 @@ export function ApiResult<TModel extends Type<any>>({
   }
 
   const model = Array.isArray(type) ? type[0] : type
+  const extraDecorators = model ? [ApiExtraModels(model)] : []
 
   return applyDecorators(
-    ApiExtraModels(model),
+    ...extraDecorators,
     (
       target: object,
       key: string | symbol,

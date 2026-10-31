@@ -20,6 +20,7 @@ import { DocumentEntity } from './document.entity'
 import { AuditDocumentDto } from './dto/audit-document.dto'
 import { CreateDocumentDto } from './dto/create-document.dto'
 import { DocumentMetaDto } from './dto/document-meta.dto'
+import { QueryApprovalDto } from './dto/query-approval.dto'
 import { QueryDocumentDto } from './dto/query-document.dto'
 import { GenerateUploadSignDto, UploadSignResultDto } from './dto/upload-sign.dto'
 import { R2StorageService } from './r2-storage.service'
@@ -306,4 +307,85 @@ export class DocumentService {
   async getDocumentAccessUrl(storageKey: string): Promise<string> {
     return this.r2StorageService.generatePresignedGetUrl(storageKey)
   }
+
+  /**
+   * 分页获取全局审批流转履历列表（带文档标题与分类等详情）
+   */
+  async findApprovalRecords(
+    dto: QueryApprovalDto,
+    user: IAuthUser,
+  ): Promise<{ items: any[]; total: number }> {
+    const { keyword, action, nodeType, docCode, startDate, endDate, page = 1, pageSize = 10 } = dto
+
+    const qb = this.approvalRepo
+      .createQueryBuilder('record')
+      .leftJoin(DocumentEntity, 'doc', 'doc.id = record.doc_id')
+      .select([
+        'record.id AS id',
+        'record.doc_id AS docId',
+        'record.doc_code AS docCode',
+        'record.node_type AS nodeType',
+        'record.action AS action',
+        'record.operator_id AS operatorId',
+        'record.operator_name AS operatorName',
+        'record.comment AS comment',
+        'record.snapshot_status AS snapshotStatus',
+        'record.created_at AS createdAt',
+        'record.updated_at AS updatedAt',
+        'doc.title AS docTitle',
+        'doc.category AS docCategory',
+        'doc.file_type AS docFileType',
+        'doc.file_size AS docFileSize',
+        'doc.status AS docStatus',
+      ])
+
+    if (keyword) {
+      qb.andWhere(
+        '(doc.title LIKE :kw OR record.doc_code LIKE :kw OR record.operator_name LIKE :kw OR record.comment LIKE :kw)',
+        { kw: `%${keyword}%` },
+      )
+    }
+
+    if (action) {
+      qb.andWhere('record.action = :action', { action })
+    }
+
+    if (nodeType) {
+      qb.andWhere('record.node_type = :nodeType', { nodeType })
+    }
+
+    if (docCode) {
+      qb.andWhere('record.doc_code = :docCode', { docCode })
+    }
+
+    if (startDate) {
+      qb.andWhere('record.created_at >= :startDate', {
+        startDate: startDate.length <= 10 ? `${startDate} 00:00:00` : startDate,
+      })
+    }
+
+    if (endDate) {
+      qb.andWhere('record.created_at <= :endDate', {
+        endDate: endDate.length <= 10 ? `${endDate} 23:59:59` : endDate,
+      })
+    }
+
+    // 数据权限隔离：如果非管理员且非审核人员，仅能查看自己提交的文档或者自己操作的记录
+    const isAdmin = user.roles && (user.roles.includes('admin') || user.roles.includes('super_admin'))
+    if (!isAdmin) {
+      qb.andWhere('(record.operator_id = :uid OR doc.create_by = :uid)', { uid: user.uid })
+    }
+
+    qb.orderBy('record.created_at', 'DESC')
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
+
+    const [rawItems, total] = await Promise.all([
+      qb.getRawMany(),
+      qb.getCount(),
+    ])
+
+    return { items: rawItems, total }
+  }
 }
+

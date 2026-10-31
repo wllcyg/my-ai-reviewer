@@ -4,11 +4,13 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { ApiResult } from '~/common/decorators/api-result.decorator'
 import { AuthUser } from '~/modules/auth/decorators/auth-user.decorator'
 
+import { DocumentApprovalEntity } from './document-approval.entity'
 import { DocumentEntity } from './document.entity'
 import { DocumentService } from './document.service'
 import { AuditDocumentDto, SubmitReviewDto } from './dto/audit-document.dto'
 import { CreateDocumentDto } from './dto/create-document.dto'
 import { DocumentMetaDto } from './dto/document-meta.dto'
+import { QueryApprovalDto } from './dto/query-approval.dto'
 import { QueryDocumentDto } from './dto/query-document.dto'
 import { GenerateUploadSignDto, UploadSignResultDto } from './dto/upload-sign.dto'
 
@@ -62,6 +64,16 @@ export class DocumentController {
   @ApiResult({ type: String })
   async getAccessUrl(@Query('storageKey') storageKey: string): Promise<string> {
     return this.documentService.getDocumentAccessUrl(storageKey)
+  }
+
+  @Get('approval-records')
+  @ApiOperation({ summary: '分页获取全局审批流转履历列表' })
+  @ApiResult({ type: [DocumentApprovalEntity], isPage: true })
+  async listApprovalRecords(
+    @Query() dto: QueryApprovalDto,
+    @AuthUser() user: IAuthUser,
+  ): Promise<{ items: any[]; total: number }> {
+    return this.documentService.findApprovalRecords(dto, user)
   }
 
   @Post(':code/submit')
