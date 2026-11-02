@@ -23,21 +23,26 @@
         </a-input>
       </a-form-item>
       <a-form-item>
-        <a-input
-          v-model:value="loginFormModel.verifyCode"
-          placeholder="验证码"
-          :maxlength="4"
-          size="large"
-        >
-          <template #prefix> <Icon icon="ant-design:safety-outlined" /> </template>
-          <template #suffix>
-            <img
-              :src="captcha"
-              class="absolute right-0 h-full cursor-pointer"
+        <div class="flex items-center gap-3">
+          <a-input
+            v-model:value="loginFormModel.verifyCode"
+            placeholder="计算结果"
+            :maxlength="4"
+            size="large"
+            class="flex-1"
+          >
+            <template #prefix> <Icon icon="ant-design:safety-outlined" /> </template>
+          </a-input>
+          <a-tooltip title="看不清？点击更换">
+            <div
+              class="h-[40px] w-[120px] shrink-0 overflow-hidden rounded-md border border-gray-200 bg-slate-50 flex items-center justify-center cursor-pointer transition-all hover:border-blue-400 hover:shadow-sm select-none"
               @click="updateCaptcha"
-            />
-          </template>
-        </a-input>
+            >
+              <img v-if="captcha" :src="captcha" class="h-full w-full object-contain" alt="验证码" />
+              <a-spin v-else size="small" />
+            </div>
+          </a-tooltip>
+        </div>
       </a-form-item>
       <a-form-item>
         <a-button type="primary" html-type="submit" size="large" :loading="loading" block>
@@ -73,7 +78,7 @@
   });
 
   const updateCaptcha = async () => {
-    const data = await Api.captcha.captchaCaptchaByImg({ width: 100, height: 50 });
+    const data = await Api.captcha.captchaCaptchaByImg({ width: 120, height: 40 });
     captcha.value = data.img;
     loginFormModel.value.captchaId = data.id;
   };

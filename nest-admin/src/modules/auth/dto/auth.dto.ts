@@ -20,7 +20,7 @@ export class LoginDto {
 
   @ApiProperty({ description: '用户输入的验证码' })
   @IsString()
-  @MinLength(4)
+  @MinLength(1)
   @MaxLength(4)
   verifyCode: string
 }

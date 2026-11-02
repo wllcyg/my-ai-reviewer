@@ -29,13 +29,16 @@ export class CaptchaController {
   async captchaByImg(@Query() dto: ImageCaptchaDto): Promise<ImageCaptcha> {
     const { width, height } = dto
 
-    const svg = svgCaptcha.create({
-      size: 4,
-      color: true,
-      noise: 4,
-      width: isEmpty(width) ? 100 : width,
-      height: isEmpty(height) ? 50 : height,
-      charPreset: '1234567890',
+    const svg = svgCaptcha.createMathExpr({
+      mathMin: 1,
+      mathMax: 9,
+      mathOperator: '+',
+      color: false,
+      noise: 1,
+      width: isEmpty(width) ? 120 : Number(width),
+      height: isEmpty(height) ? 40 : Number(height),
+      fontSize: 38,
+      background: '#f8fafc',
     })
     const result = {
       img: `data:image/svg+xml;base64,${Buffer.from(svg.data).toString(
