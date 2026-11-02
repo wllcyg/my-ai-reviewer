@@ -19,6 +19,7 @@ import { AuditDocumentDto } from "../dto/audit-document.dto";
 import { QueryApprovalDto } from "../dto/query-approval.dto";
 import { lockDocumentByCode } from "./document-lock.util";
 import { DocumentPermissionService } from "./document-permission.service";
+import { DocumentPipelinePublisher } from "~/mq/document-pipeline.publisher";
 
 interface AppendApprovalParams {
   doc: DocumentEntity;
@@ -44,6 +45,7 @@ export class DocumentApprovalService {
     @InjectRepository(DocumentApprovalEntity)
     private readonly approvalRepo: Repository<DocumentApprovalEntity>,
     private readonly permission: DocumentPermissionService,
+    private readonly docPublisher: DocumentPipelinePublisher,
   ) {}
 
   /**
@@ -201,6 +203,26 @@ export class DocumentApprovalService {
     this.logger.log(
       `文档 [${code}] 审核完成: ${dto.action}, 操作者: ${user.uid}`,
     );
+
+    // 审核通过后，异步投递文档至 RabbitMQ 进行分块与向量化（不阻塞 HTTP 响应）
+    if (dto.action === "APPROVE") {
+      this.docPublisher
+        .sendDocProcessTask({
+          taskId: `task_${savedDoc.docCode}_${Date.now()}`,
+          docCode: savedDoc.docCode,
+          docId: savedDoc.id,
+          title: savedDoc.title,
+          fileType: savedDoc.fileType,
+          storageKey: savedDoc.storageKey,
+          visibleRange: savedDoc.scope || "PUBLIC",
+          deptIds: savedDoc.visibleDeptIds || [],
+          creatorId: savedDoc.createBy,
+        })
+        .catch((err) => {
+          this.logger.error(`[MQ 异常] 文档 ${code} 异步投递失败: ${err.message}`);
+        });
+    }
+
     return savedDoc;
   }
 

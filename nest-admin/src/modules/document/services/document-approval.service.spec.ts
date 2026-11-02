@@ -65,10 +65,15 @@ describe('DocumentApprovalService', () => {
     }
 
     permissionService = new DocumentPermissionService()
+    const mockDocPublisher = {
+      sendDocProcessTask: jest.fn().mockResolvedValue(true),
+    } as any
+
     service = new DocumentApprovalService(
       mockDocRepo as Repository<DocumentEntity>,
       mockApprovalRepo as Repository<DocumentApprovalEntity>,
       permissionService,
+      mockDocPublisher,
     )
   })
 

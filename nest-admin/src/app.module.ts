@@ -26,6 +26,7 @@ import { TasksModule } from './modules/tasks/tasks.module'
 import { TodoModule } from './modules/todo/todo.module'
 import { ToolsModule } from './modules/tools/tools.module'
 import { DocumentModule } from './modules/document/document.module'
+import { MqModule } from './mq/mq.module'
 import { DatabaseModule } from './shared/database/database.module'
 
 import { SocketModule } from './socket/socket.module'
@@ -56,6 +57,7 @@ import { SocketModule } from './socket/socket.module'
     }),
     SharedModule,
     DatabaseModule,
+    MqModule,
 
     AuthModule,
     SystemModule,

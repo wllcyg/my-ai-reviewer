@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     r2_secret_access_key: str = ""
     r2_bucket_name: str = "my-ai-reviewer"
 
+    # RabbitMQ 消息队列配置
+    rabbitmq_url: str = ""
+    rabbitmq_queue: str = "kh.doc.process.queue"
+    rabbitmq_prefetch_count: int = 1
+
     # 优先读本地 .env，其次读父级根目录 .env
     model_config = SettingsConfigDict(
         env_file=(LOCAL_ENV, ROOT_ENV),
