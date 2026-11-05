@@ -1,11 +1,11 @@
 import path from 'node:path'
-import { Injectable, Logger } from '@nestjs/common'
+import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { IDocParser } from '../parser.interface'
 
 /**
  * 纯文本 (.txt) 与 原生 Markdown (.md) 解析策略
  * 特性：
- * 1. 自动嗅探 GBK / UTF-8 编码，彻底解决 Windows 记事本中文乱码
+ * 1. 自动嗅探 UTF-16 / GBK / UTF-8 编码，彻底解决 Windows 记事本中文乱码
  * 2. 区分 .md 与 .txt：.md 保持原汁原味，.txt 自动进行排版保真与轻量结构化
  * 3. 智能段落规整，避免 CommonMark 换行塌陷
  */
@@ -15,12 +15,13 @@ export class TextParserStrategy implements IDocParser {
   readonly supportedExtensions = ['.txt', '.md', '.markdown']
 
   async parse(buffer: Buffer, filename?: string): Promise<string> {
-    // 1. 智能编码识别与解码（优先 UTF-8，遇错回退到 GBK）
+    // 1. 智能编码识别与解码（BOM 检测 → UTF-8 → GBK 兜底）
+    // Fix Bug1: BOM 剥离与编码检测统一在 decodeBuffer 内部处理，避免 UTF-16 乱码
     const rawText = this.decodeBuffer(buffer)
 
     // 2. 统一全文本换行符，规范化空白字符
+    // Fix Bug1: BOM 已在 decodeBuffer 内剥离，此处只做换行符规范化
     const normalizedText = rawText
-      .replace(/^\uFEFF/, '') // 剥离 UTF-8 BOM
       .replace(/\r\n/g, '\n') // 统一 Windows 换行符
       .replace(/\r/g, '\n')
 
@@ -30,23 +31,41 @@ export class TextParserStrategy implements IDocParser {
       return normalizedText.trim()
     }
 
+    // Fix Bug6: 防御空文件——在注入文件名标题之前检测，避免下游 RAG / LLM 收到无意义内容
+    if (!normalizedText.trim()) {
+      throw new BadRequestException('文件内容为空，无法解析')
+    }
+
     // 4. 针对纯 TXT 进行结构化与排版保真增强
     return this.formatTxtToMarkdown(normalizedText, filename)
   }
 
   /**
-   * 字符编码自适应解码：利用 Node 原生 TextDecoder 零依赖实现 GBK/UTF-8 识别
+   * 字符编码自适应解码：支持 UTF-16 LE/BE BOM、UTF-8 BOM、GBK，零外部依赖
+   * Fix Bug1: 统一在此处完成 BOM 检测与剥离，覆盖 UTF-16 LE/BE 场景
    */
   private decodeBuffer(buffer: Buffer): string {
+    // 检测 UTF-16 LE BOM (FF FE)
+    if (buffer.length >= 2 && buffer[0] === 0xFF && buffer[1] === 0xFE) {
+      this.logger.debug('检测到 UTF-16 LE BOM，使用 utf-16le 解码')
+      return new TextDecoder('utf-16le').decode(buffer).replace(/^\uFEFF/, '')
+    }
+
+    // 检测 UTF-16 BE BOM (FE FF)
+    if (buffer.length >= 2 && buffer[0] === 0xFE && buffer[1] === 0xFF) {
+      this.logger.debug('检测到 UTF-16 BE BOM，使用 utf-16be 解码')
+      return new TextDecoder('utf-16be').decode(buffer).replace(/^\uFEFF/, '')
+    }
+
     try {
       // 启用 fatal 模式：一旦遇到非法的 UTF-8 字节序，立即抛出 TypeError，从而触发 GBK 兜底
       const utf8Decoder = new TextDecoder('utf-8', { fatal: true })
-      return utf8Decoder.decode(buffer)
+      // UTF-8 BOM (EF BB BF) 在此处剥离，位置更准确
+      return utf8Decoder.decode(buffer).replace(/^\uFEFF/, '')
     }
     catch {
       this.logger.debug('检测到非标准 UTF-8 文本流，自动切换为 GBK 编码解码')
-      const gbkDecoder = new TextDecoder('gbk')
-      return gbkDecoder.decode(buffer)
+      return new TextDecoder('gbk').decode(buffer)
     }
   }
 
@@ -61,14 +80,17 @@ export class TextParserStrategy implements IDocParser {
     if (filename) {
       const cleanTitle = path.basename(filename, path.extname(filename)).trim()
       const firstNonEmpty = lines.find(l => l.trim().length > 0) || ''
-      if (!firstNonEmpty.startsWith('#')) {
+      // Fix Bug3: 使用 .trim().startsWith('#') 避免前置缩进导致漏判、重复注入标题
+      if (!firstNonEmpty.trim().startsWith('#')) {
         resultLines.push(`# ${cleanTitle}\n`)
       }
     }
 
     // (2) 常见中文与数字章节模式正则：如 "第一章"、"一、"、"1.1"、"【xxx】"
-    const level1Pattern = /^(?:第[一二三四五六七八九十百0-9]+[章节卷篇部]|[\u4E00-\u9FA5]{1,2}、)\s*(.*)$/
-    const level2Pattern = /^(?:(?:\d+\.){1,2}\d*|（[一二三四五六七八九十0-9]+）)\s*(.*)$/
+    // Fix Bug4: level1Pattern 限定常见枚举字（一二三…十），避免任意中文+顿号误识别
+    const level1Pattern = /^(?:第[一二三四五六七八九十百0-9]+[章节卷篇部]|[一二三四五六七八九十][、.])\s*[\u4E00-\u9FA5A-Za-z].{0,48}$/
+    // Fix Bug2: level2Pattern 末尾改为 \d+（至少 1 位），且限制行长，避免金额/小数误识为标题
+    const level2Pattern = /^(?:(?:\d+\.){1,2}\d+|（[一二三四五六七八九十0-9]+）)\s*[\u4E00-\u9FA5A-Za-z].{0,48}$/
     const bracketHeaderPattern = /^【([^】]+)】(.*)$/
 
     for (let i = 0; i < lines.length; i++) {
@@ -111,9 +133,15 @@ export class TextParserStrategy implements IDocParser {
         continue
       }
 
-      // 普通段落行：在 Markdown 中，普通行尾若不加两个空格或双换行会被折叠到同一行
-      // 保持原始排版保真：在非空文本行末尾增加两个空格触发 Markdown 硬换行
-      resultLines.push(`${rawLine}  `)
+      // Fix Bug5: 普通段落使用 trimmed 而非 rawLine，避免 ≥4 空格前缀意外触发 Markdown 代码块
+      // 若原行有前置缩进且缩进 ≥ 4 空格，视为预格式内容，包裹为代码块行
+      if (rawLine.match(/^ {4,}/)) {
+        resultLines.push(`    ${trimmed}`)
+      }
+      else {
+        // 普通段落：行末追加两个空格触发 Markdown 硬换行，保持排版保真
+        resultLines.push(`${trimmed}  `)
+      }
     }
 
     return resultLines.join('\n').trim()
