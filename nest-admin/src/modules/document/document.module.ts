@@ -11,7 +11,9 @@ import { DocumentPermissionService } from './services/document-permission.servic
 import { DocumentService } from './services/document.service'
 
 @Module({
-  imports: [TypeOrmModule.forFeature([DocumentEntity, DocumentApprovalEntity])],
+  imports: [
+    TypeOrmModule.forFeature([DocumentEntity, DocumentApprovalEntity]),
+  ],
   controllers: [DocumentController],
   providers: [
     DocumentService,

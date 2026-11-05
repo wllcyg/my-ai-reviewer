@@ -1,7 +1,7 @@
 import type { FastifyRequest } from 'fastify'
 
 import { ClassSerializerInterceptor, Module } from '@nestjs/common'
-import { ConfigModule } from '@nestjs/config'
+import { ConfigModule, ConfigService } from '@nestjs/config'
 
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
 import { ThrottlerGuard } from '@nestjs/throttler'
@@ -28,6 +28,7 @@ import { ToolsModule } from './modules/tools/tools.module'
 import { DocumentModule } from './modules/document/document.module'
 import { MqModule } from './mq/mq.module'
 import { DatabaseModule } from './shared/database/database.module'
+import { MongoModule } from './shared/mongo/mongo.module'
 
 import { SocketModule } from './socket/socket.module'
 
@@ -57,6 +58,7 @@ import { SocketModule } from './socket/socket.module'
     }),
     SharedModule,
     DatabaseModule,
+    MongoModule,
     MqModule,
 
     AuthModule,

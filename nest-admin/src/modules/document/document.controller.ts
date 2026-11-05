@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
 } from '@nestjs/common'
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger'
@@ -20,10 +21,12 @@ import { CreateDocumentDto } from './dto/create-document.dto'
 import { DocumentMetaDto } from './dto/document-meta.dto'
 import { QueryApprovalDto } from './dto/query-approval.dto'
 import { QueryDocumentDto } from './dto/query-document.dto'
+import { UpdateDocContentDto } from './dto/update-content.dto'
 import {
   GenerateUploadSignDto,
   UploadSignResultDto,
 } from './dto/upload-sign.dto'
+import { DocContentService } from '~/shared/mongo/services/doc-content.service'
 import { DocumentApprovalService } from './services/document-approval.service'
 import { DocumentMetaService } from './services/document-meta.service'
 import { DocumentService } from './services/document.service'
@@ -35,6 +38,7 @@ export class DocumentController {
     private readonly documentService: DocumentService,
     private readonly approvalService: DocumentApprovalService,
     private readonly metaService: DocumentMetaService,
+    private readonly docContentService: DocContentService,
   ) {}
 
   @Post('upload-sign')
@@ -127,12 +131,41 @@ export class DocumentController {
     return this.documentService.findByCode(code, user)
   }
 
+  @Get(':code/content')
+  @ApiOperation({ summary: '从 MongoDB 获取文档的 Markdown 全文内容' })
+  @ApiOkResponse({ type: String })
+  @ApiResult({ type: String })
+  async getContent(
+    @Param('code') code: string,
+    @AuthUser() user: IAuthUser,
+  ): Promise<string> {
+    // 权限校验：先校验是否有查看该文档的权限
+    await this.documentService.findByCode(code, user)
+    return this.docContentService.getContentByCode(code)
+  }
+
+  @Put(':code/content')
+  @ApiOperation({ summary: '保存或更新文档的 Markdown 全文至 MongoDB' })
+  @ApiResult({ type: Boolean })
+  async updateContent(
+    @Param('code') code: string,
+    @Body() dto: UpdateDocContentDto,
+    @AuthUser() user: IAuthUser,
+  ): Promise<boolean> {
+    // 权限校验并获取内部自增 docId
+    const { document } = await this.documentService.findByCode(code, user)
+    await this.docContentService.saveContent(code, document.id, dto.markdownContent)
+    return true
+  }
+
   @Delete(':code')
-  @ApiOperation({ summary: '根据业务编码删除文档及清理 R2 存储' })
+  @ApiOperation({ summary: '根据业务编码删除文档及清理 R2 和 MongoDB 存储' })
   async delete(
     @Param('code') code: string,
     @AuthUser() user: IAuthUser,
   ): Promise<void> {
-    return this.documentService.deleteByCode(code, user)
+    await this.documentService.deleteByCode(code, user)
+    // 异步清理 MongoDB 中的全文大文本
+    await this.docContentService.deleteByCode(code).catch(() => {})
   }
 }
