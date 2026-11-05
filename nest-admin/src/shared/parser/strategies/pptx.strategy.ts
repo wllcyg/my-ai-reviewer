@@ -1,19 +1,35 @@
-import { Injectable, Logger } from '@nestjs/common'
-import { IDocParser } from '../parser.interface'
+import { Injectable } from '@nestjs/common'
+import { OfficeParser } from 'officeparser'
+import { OFFICE_MAX_FILE_SIZES } from '../parser.utils'
+import { BaseOfficeStrategy } from './base-office.strategy'
 
 /**
- * PPT 演示文稿解析策略骨架 (待填充幻灯片文本框提取逻辑)
+ * PPT 演示文稿 (.pptx) 解析策略
+ * 基于 BaseOfficeStrategy 生命周期管道：
+ * 1. 结构化提取每页幻灯片文本框、层级大纲与内容
+ * 2. 严格执行 50MB 大小限制与 OOXML ZIP 魔数验证（旧版 .ppt 统一由分发层拦截）
  */
 @Injectable()
-export class PptxParserStrategy implements IDocParser {
-  private readonly logger = new Logger(PptxParserStrategy.name)
-  readonly supportedExtensions = ['.pptx', '.ppt']
+export class PptxParserStrategy extends BaseOfficeStrategy {
+  readonly supportedExtensions = ['.pptx']
+  readonly formatName = 'PPTX'
+  protected readonly maxSizeBytes = OFFICE_MAX_FILE_SIZES.PPTX
 
-  async parse(buffer: Buffer, filename?: string): Promise<string> {
-    this.logger.debug(`[PptxParser] 接收到 PPT 解析请求: filename=${filename || 'unknown'}, size=${buffer.length}`)
+  constructor() {
+    super(PptxParserStrategy.name)
+  }
 
-    // TODO: 后续填充幻灯片分段提取并拼接为 Markdown
-    return `# 幻灯片解析预览 (${filename || 'PPT演示文稿'})\n\n[待填充: PPT 文本提取内容]`
+  /**
+   * 核心幻灯片提取与 Markdown 转换
+   */
+  protected async extract(buffer: Buffer): Promise<string> {
+    const ast = await OfficeParser.parseOffice(buffer, {
+      ocr: false,
+      fileType: 'pptx',
+    })
+
+    const conversion = await ast.to('md')
+
+    return conversion?.value || ''
   }
 }
-

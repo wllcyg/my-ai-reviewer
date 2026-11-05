@@ -57,7 +57,7 @@
         </div>
       </a-form-item>
 
-      <a-form-item label="上传文件 (支持 PDF, Word, Markdown, TXT)" required>
+      <a-form-item label="上传文件 (支持 Word, Excel, PPT, PDF, Markdown, TXT)" required>
         <a-upload-dragger
           v-model:fileList="fileList"
           :max-count="1"

@@ -28,6 +28,11 @@ export const ALLOWED_DOC_EXTENSIONS = [
   '.pdf',
   '.doc',
   '.docx',
+  '.xlsx',
+  '.xls',
+  '.pptx',
+  '.ppt',
+  '.csv',
   '.md',
   '.txt',
   '.markdown',
@@ -106,7 +111,7 @@ export class R2StorageService {
     const ext = path.extname(fileName).toLowerCase()
     if (!ALLOWED_DOC_EXTENSIONS.includes(ext)) {
       throw new BadRequestException(
-        `不支持的文件格式 [${ext}]，仅允许上传 PDF、Word、Markdown、TXT 格式文档`,
+        `不支持的文件格式 [${ext}]，仅允许上传 Word、Excel、PPT、PDF、Markdown、TXT 格式文档`,
       )
     }
 

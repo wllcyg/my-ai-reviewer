@@ -79,8 +79,8 @@ export const authorizedDeptTree = [
 export const defaultVectorStatusOptions = [
   { label: '已就绪 (可检索)', value: 'completed', badge: 'success' },
   { label: '切片向量化中', value: 'processing', badge: 'processing' },
-  { label: '未解析', value: 'unprocessed', badge: 'default' },
-  { label: '解析失败', value: 'failed', badge: 'error' },
+  { label: '待向量化', value: 'unprocessed', badge: 'default' },
+  { label: '向量化失败', value: 'failed', badge: 'error' },
 ];
 
 export const defaultReviewStatusOptions = [
@@ -220,7 +220,7 @@ export const getDocumentColumns = (actions: {
       if (found) {
         return <Badge status={(found.badge as any) || 'default'} text={found.label} />;
       }
-      return <Badge status="default" text={vs || '未解析'} />;
+      return <Badge status="default" text={vs || '待向量化'} />;
     },
   },
   {

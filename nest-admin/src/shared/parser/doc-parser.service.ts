@@ -76,6 +76,14 @@ export class DocParserService implements OnModuleInit {
     }
 
     const ext = this.extractExtension(fileTypeOrName)
+
+    // 0. 拦截旧版二进制 Office 格式并给出指引
+    if (ext === '.doc' || ext === '.xls' || ext === '.ppt') {
+      throw new BadRequestException(
+        `检测到旧版 Office 格式 [${ext}]，系统暂不支持，请将其另存为 .docx / .xlsx / .pptx 新版格式后重新上传`,
+      )
+    }
+
     const parser = this.parserRegistry.get(ext)
 
     if (!parser) {

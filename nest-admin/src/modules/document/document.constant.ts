@@ -75,10 +75,10 @@ export const VECTOR_STATUS_OPTIONS: Record<
 > = {
   [VectorStatusEnum.UNPROCESSED]: {
     value: VectorStatusEnum.UNPROCESSED,
-    label: "未解析",
+    label: "待向量化",
     badge: "default",
     color: "default",
-    description: "尚未开始向量化切块",
+    description: "文档已解析，等待切片向量化入库",
   },
   [VectorStatusEnum.PROCESSING]: {
     value: VectorStatusEnum.PROCESSING,
@@ -96,7 +96,7 @@ export const VECTOR_STATUS_OPTIONS: Record<
   },
   [VectorStatusEnum.FAILED]: {
     value: VectorStatusEnum.FAILED,
-    label: "解析失败",
+    label: "向量化失败",
     badge: "error",
     color: "error",
     description: "文件格式受损或模型接口超时",
