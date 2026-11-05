@@ -1,3 +1,12 @@
+jest.mock('@nestjs/mongoose', () => ({
+  InjectModel: () => () => {},
+  Prop: () => () => {},
+  Schema: () => () => {},
+  SchemaFactory: {
+    createForClass: () => ({}),
+  },
+}))
+
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { EntityManager, QueryFailedError, Repository, SelectQueryBuilder } from 'typeorm'
 
@@ -8,6 +17,8 @@ import { R2StorageService } from '../r2-storage.service'
 import { DocumentApprovalService } from './document-approval.service'
 import { DocumentPermissionService } from './document-permission.service'
 import { DocumentService } from './document.service'
+import { DocContentService } from '~/shared/mongo/services/doc-content.service'
+import { DocParserService } from '~/shared/parser/doc-parser.service'
 
 describe('DocumentService', () => {
   let service: DocumentService
@@ -15,6 +26,8 @@ describe('DocumentService', () => {
   let mockR2StorageService: Partial<R2StorageService>
   let permissionService: DocumentPermissionService
   let mockApprovalService: Partial<DocumentApprovalService>
+  let mockDocParserService: Partial<DocParserService>
+  let mockDocContentService: Partial<DocContentService>
   let mockManager: Partial<EntityManager>
 
   const normalUser: IAuthUser = {
@@ -41,10 +54,12 @@ describe('DocumentService', () => {
       save: jest.fn().mockImplementation((entity) => Promise.resolve({ id: 999, ...entity })),
       create: jest.fn().mockImplementation((_, entity) => entity),
       delete: jest.fn().mockResolvedValue({ affected: 1 } as any),
+      softDelete: jest.fn().mockResolvedValue({ affected: 1 } as any),
     }
 
     mockDocRepo = {
       findOne: jest.fn(),
+      update: jest.fn().mockResolvedValue({ affected: 1 } as any),
       manager: {
         transaction: jest.fn().mockImplementation((cb: (mgr: EntityManager) => any) => cb(mockManager as EntityManager)),
       } as any,
@@ -62,6 +77,7 @@ describe('DocumentService', () => {
       verifyUploadedObject: jest.fn().mockResolvedValue(undefined),
       generatePresignedGetUrl: jest.fn().mockResolvedValue('https://r2.example.com/get-signed'),
       deleteFile: jest.fn().mockResolvedValue(undefined),
+      downloadBuffer: jest.fn().mockResolvedValue(Buffer.from('mock buffer')),
     }
 
     permissionService = new DocumentPermissionService()
@@ -71,11 +87,23 @@ describe('DocumentService', () => {
       appendRecord: jest.fn().mockResolvedValue({ id: 1 } as any),
     }
 
+    mockDocParserService = {
+      parseToMarkdown: jest.fn().mockResolvedValue('# Test Content'),
+    }
+
+    mockDocContentService = {
+      saveContent: jest.fn().mockResolvedValue(undefined as any),
+      getContentByCode: jest.fn().mockResolvedValue('# Test Content'),
+      deleteByCode: jest.fn().mockResolvedValue(true),
+    }
+
     service = new DocumentService(
       mockDocRepo as Repository<DocumentEntity>,
       mockR2StorageService as R2StorageService,
       permissionService,
       mockApprovalService as DocumentApprovalService,
+      mockDocParserService as DocParserService,
+      mockDocContentService as DocContentService,
     )
   })
 
@@ -189,7 +217,7 @@ describe('DocumentService', () => {
       expect(mockR2StorageService.deleteFile).not.toHaveBeenCalled()
     })
 
-    it('作者或管理员删除成功：事务内删除数据库记录，提交后调用 R2 清理物理文件', async () => {
+    it('作者或管理员删除成功：执行软删除，保留 R2 文件与 MongoDB 数据', async () => {
       const myDoc = {
         docCode: 'doc_del_02',
         createBy: normalUser.uid,
@@ -200,9 +228,9 @@ describe('DocumentService', () => {
 
       await service.deleteByCode('doc_del_02', normalUser)
 
-      expect(mockApprovalService.deleteByDocCode).toHaveBeenCalledWith(mockManager, 'doc_del_02')
-      expect(mockManager.delete).toHaveBeenCalledWith(DocumentEntity, { docCode: 'doc_del_02' })
-      expect(mockR2StorageService.deleteFile).toHaveBeenCalledWith('knowledge/docs/sample.pdf')
+      expect(mockManager.softDelete).toHaveBeenCalledWith(DocumentEntity, { docCode: 'doc_del_02' })
+      expect(mockR2StorageService.deleteFile).not.toHaveBeenCalled()
+      expect(mockDocContentService.deleteByCode).not.toHaveBeenCalled()
     })
   })
 

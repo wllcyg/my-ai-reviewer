@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { Readable } from 'node:stream'
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -212,6 +213,28 @@ export class R2StorageService {
       Key: storageKey,
     })
     return getSignedUrl(client, command, { expiresIn })
+  }
+
+  /**
+   * 从 R2 内部流式下载文件为内存 Buffer (不走公网 URL，零出口流量费)
+   */
+  async downloadBuffer(storageKey: string): Promise<Buffer> {
+    const client = this.ensureClient()
+    const command = new GetObjectCommand({
+      Bucket: this.r2Config.bucket,
+      Key: storageKey,
+    })
+    const response = await client.send(command)
+    const stream = response.Body as Readable
+    if (!stream) {
+      throw new InternalServerErrorException('读取 R2 文件流失败，响应主体为空')
+    }
+
+    const chunks: Buffer[] = []
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+    }
+    return Buffer.concat(chunks)
   }
 
   /**

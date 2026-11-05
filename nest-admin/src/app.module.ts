@@ -29,6 +29,7 @@ import { DocumentModule } from './modules/document/document.module'
 import { MqModule } from './mq/mq.module'
 import { DatabaseModule } from './shared/database/database.module'
 import { MongoModule } from './shared/mongo/mongo.module'
+import { ParserModule } from './shared/parser/parser.module'
 
 import { SocketModule } from './socket/socket.module'
 
@@ -59,6 +60,7 @@ import { SocketModule } from './socket/socket.module'
     SharedModule,
     DatabaseModule,
     MongoModule,
+    ParserModule,
     MqModule,
 
     AuthModule,

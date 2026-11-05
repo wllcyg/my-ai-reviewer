@@ -159,13 +159,11 @@ export class DocumentController {
   }
 
   @Delete(':code')
-  @ApiOperation({ summary: '根据业务编码删除文档及清理 R2 和 MongoDB 存储' })
+  @ApiOperation({ summary: '根据业务编码软删除文档（保留 R2 与 Markdown 存储）' })
   async delete(
     @Param('code') code: string,
     @AuthUser() user: IAuthUser,
   ): Promise<void> {
     await this.documentService.deleteByCode(code, user)
-    // 异步清理 MongoDB 中的全文大文本
-    await this.docContentService.deleteByCode(code).catch(() => {})
   }
 }

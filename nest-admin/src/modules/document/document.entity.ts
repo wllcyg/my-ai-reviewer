@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { Column, Entity, Index } from 'typeorm'
+import { Column, DeleteDateColumn, Entity, Index } from 'typeorm'
 
 import { CompleteEntity } from '~/common/entity/common.entity'
 import {
@@ -159,4 +159,12 @@ export class DocumentEntity extends CompleteEntity {
   })
   @ApiProperty({ description: '向量化状态' })
   vectorStatus: VectorStatus
+
+  @DeleteDateColumn({
+    name: 'deleted_at',
+    nullable: true,
+    comment: '软删除时间戳（为 NULL 表示正常）',
+  })
+  @ApiProperty({ description: '软删除时间戳', required: false })
+  deletedAt: Date
 }

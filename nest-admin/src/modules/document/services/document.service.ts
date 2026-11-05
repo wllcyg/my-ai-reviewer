@@ -27,6 +27,8 @@ import {
   UploadSignResultDto,
 } from '../dto/upload-sign.dto'
 import { R2StorageService } from '../r2-storage.service'
+import { DocContentService } from '~/shared/mongo/services/doc-content.service'
+import { DocParserService } from '~/shared/parser/doc-parser.service'
 import { DocumentApprovalService } from './document-approval.service'
 import { lockDocumentByCode } from './document-lock.util'
 import { DocumentPermissionService } from './document-permission.service'
@@ -44,6 +46,8 @@ export class DocumentService {
     private readonly r2StorageService: R2StorageService,
     private readonly permission: DocumentPermissionService,
     private readonly approvalService: DocumentApprovalService,
+    private readonly docParserService: DocParserService,
+    private readonly docContentService: DocContentService,
   ) {}
 
   /**
@@ -143,7 +147,54 @@ export class DocumentService {
     this.logger.log(
       `文档创建成功: ${savedDoc.title} (${savedDoc.docCode}), 创建者: ${user.uid}`,
     )
+
+    // 🌟 异步触发自动解析流并持久化至 MongoDB (不阻塞本次上传请求响应)
+    this.asyncParseAndSaveContent(savedDoc).catch((err) => {
+      this.logger.error(`[触发异步解析失败] docCode=${savedDoc.docCode}: ${err.message}`)
+    })
+
     return savedDoc
+  }
+
+  /**
+   * 异步执行文档解析并持久化至 MongoDB (容错闭环)
+   */
+  async asyncParseAndSaveContent(doc: DocumentEntity): Promise<void> {
+    const { docCode, id: docId, storageKey, fileType, fileName } = doc
+
+    try {
+      this.logger.log(`[自动解析流] 开始拉取并解析文档: ${docCode} (${fileName})`)
+
+      // 1. 更新 MySQL 状态为解析中
+      await this.docRepo.update(docId, {
+        vectorStatus: VectorStatusEnum.PROCESSING,
+      })
+
+      // 2. 从 R2 流式下载为内存 Buffer
+      const buffer = await this.r2StorageService.downloadBuffer(storageKey)
+
+      // 3. 策略路由：自动解析为标准 Markdown
+      const markdown = await this.docParserService.parseToMarkdown(buffer, fileType, fileName)
+
+      // 4. 存入 MongoDB doc_contents 集合
+      await this.docContentService.saveContent(docCode, docId, markdown)
+
+      // 5. 更新 MySQL 状态为待发布 (未向量化)
+      await this.docRepo.update(docId, {
+        vectorStatus: VectorStatusEnum.UNPROCESSED,
+      })
+
+      this.logger.log(`[自动解析流] 文档 ${docCode} 已成功转换为 Markdown 并写入 MongoDB`)
+    }
+    catch (err: any) {
+      this.logger.error(`[自动解析流] 解析失败: docCode=${docCode}: ${err.message}`, err.stack)
+
+      // 容错处理：标记为解析失败，并记录具体原因供前台 Tooltip 展示
+      await this.docRepo.update(docId, {
+        vectorStatus: VectorStatusEnum.FAILED,
+        reviewRemark: `解析失败: ${err.message || '文件损坏或格式受损'}`,
+      })
+    }
   }
 
   /**
@@ -233,42 +284,23 @@ export class DocumentService {
   }
 
   /**
-   * 根据业务编码删除文档及审批记录（同一事务），提交成功后再清理 R2 物理文件
+   * 根据业务编码软删除文档（保留 R2 静态原件和 MongoDB Markdown，仅业务侧屏蔽）
    */
   async deleteByCode(code: string, user: IAuthUser): Promise<void> {
-    const storageKey = await this.docRepo.manager.transaction(
-      async (manager) => {
-        const document = await lockDocumentByCode(manager, code)
+    await this.docRepo.manager.transaction(async (manager) => {
+      const document = await lockDocumentByCode(manager, code)
 
-        if (
-          !this.permission.isAdmin(user)
-          && !this.permission.isOwner(document, user)
-        ) {
-          throw new ForbiddenException('您无权删除他人创建的文档')
-        }
-
-        await this.approvalService.deleteByDocCode(manager, code)
-        await manager.delete(DocumentEntity, { docCode: code })
-
-        return document.storageKey
-      },
-    )
-
-    // 数据库删除成功后再删 R2：失败只会遗留孤儿文件，不会出现"记录还在但文件已丢"
-    if (storageKey) {
-      try {
-        await this.r2StorageService.deleteFile(storageKey)
-        this.logger.log(`R2 物理文件删除成功: ${storageKey}`)
+      if (
+        !this.permission.isAdmin(user)
+        && !this.permission.isOwner(document, user)
+      ) {
+        throw new ForbiddenException('您无权删除他人创建的文档')
       }
-      catch (err) {
-        this.logger.error(
-          `删除 R2 物理文件异常，需人工清理孤儿文件: ${storageKey}`,
-          err,
-        )
-      }
-    }
 
-    this.logger.log(`文档 [${code}] 已被用户 [${user.uid}] 彻底移除`)
+      await manager.softDelete(DocumentEntity, { docCode: code })
+    })
+
+    this.logger.log(`文档 [${code}] 已被用户 [${user.uid}] 软删除 (保留 R2 与 MongoDB 数据)`)
   }
 
   /**
