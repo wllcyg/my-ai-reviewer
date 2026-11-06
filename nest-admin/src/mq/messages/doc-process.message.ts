@@ -15,7 +15,7 @@ export interface DocProcessMessage {
   type: string
   /** 链路追踪标识，串联 Nest 与 Python 日志 */
   traceId: string
-  /** 第几次投递（重试计数，从1开始）*/
+  /** 第几次投递（重试计数，从1开始） */
   attempt: number
 
   // === 文档标识字段 ===
@@ -23,7 +23,7 @@ export interface DocProcessMessage {
   docCode: string
   /** 数据库文档自增 ID */
   docId: number
-  /** 文件唯一标识（对应 storageKey）*/
+  /** 文件唯一标识（对应 storageKey） */
   fileId: string
 
   // === 文档元数据 ===
@@ -43,7 +43,7 @@ export interface DocProcessMessage {
   creatorId?: number
 
   // === 时间戳 ===
-  /** 消息创建时间（ISO 8601 格式）*/
+  /** 消息创建时间（ISO 8601 格式） */
   createdAt: string
   /** 消息创建时间戳 (毫秒)【兼容旧版】 */
   timestamp: number

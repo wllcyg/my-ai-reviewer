@@ -1,3 +1,16 @@
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { EntityManager, QueryFailedError, Repository, SelectQueryBuilder } from 'typeorm'
+
+import { DocContentService } from '~/shared/mongo/services/doc-content.service'
+import { DocParserService } from '~/shared/parser/doc-parser.service'
+import { DocumentScopeEnum, DocumentStatusEnum } from '../document.constant'
+import { DocumentEntity } from '../document.entity'
+import { CreateDocumentDto } from '../dto/create-document.dto'
+import { R2StorageService } from '../r2-storage.service'
+import { DocumentApprovalService } from './document-approval.service'
+import { DocumentPermissionService } from './document-permission.service'
+import { DocumentService } from './document.service'
+
 jest.mock('@nestjs/mongoose', () => ({
   InjectModel: () => () => {},
   Prop: () => () => {},
@@ -7,20 +20,7 @@ jest.mock('@nestjs/mongoose', () => ({
   },
 }))
 
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
-import { EntityManager, QueryFailedError, Repository, SelectQueryBuilder } from 'typeorm'
-
-import { DocumentScopeEnum, DocumentStatusEnum } from '../document.constant'
-import { DocumentEntity } from '../document.entity'
-import { CreateDocumentDto } from '../dto/create-document.dto'
-import { R2StorageService } from '../r2-storage.service'
-import { DocumentApprovalService } from './document-approval.service'
-import { DocumentPermissionService } from './document-permission.service'
-import { DocumentService } from './document.service'
-import { DocContentService } from '~/shared/mongo/services/doc-content.service'
-import { DocParserService } from '~/shared/parser/doc-parser.service'
-
-describe('DocumentService', () => {
+describe('documentService', () => {
   let service: DocumentService
   let mockDocRepo: Partial<Repository<DocumentEntity>>
   let mockR2StorageService: Partial<R2StorageService>
@@ -51,7 +51,7 @@ describe('DocumentService', () => {
   beforeEach(() => {
     mockManager = {
       findOne: jest.fn(),
-      save: jest.fn().mockImplementation((entity) => Promise.resolve({ id: 999, ...entity })),
+      save: jest.fn().mockImplementation(entity => Promise.resolve({ id: 999, ...entity })),
       create: jest.fn().mockImplementation((_, entity) => entity),
       delete: jest.fn().mockResolvedValue({ affected: 1 } as any),
       softDelete: jest.fn().mockResolvedValue({ affected: 1 } as any),

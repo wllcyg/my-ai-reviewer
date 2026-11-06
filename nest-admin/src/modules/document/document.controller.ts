@@ -13,9 +13,10 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { ApiResult } from '~/common/decorators/api-result.decorator'
 import { AuthUser } from '~/modules/auth/decorators/auth-user.decorator'
 
+import { DocContentService } from '~/shared/mongo/services/doc-content.service'
 import { DocumentApprovalEntity } from './document-approval.entity'
-import { DocumentEntity } from './document.entity'
 
+import { DocumentEntity } from './document.entity'
 import { AuditDocumentDto, SubmitReviewDto } from './dto/audit-document.dto'
 import { CreateDocumentDto } from './dto/create-document.dto'
 import { DocumentMetaDto } from './dto/document-meta.dto'
@@ -26,7 +27,6 @@ import {
   GenerateUploadSignDto,
   UploadSignResultDto,
 } from './dto/upload-sign.dto'
-import { DocContentService } from '~/shared/mongo/services/doc-content.service'
 import { DocumentApprovalService } from './services/document-approval.service'
 import { DocumentMetaService } from './services/document-meta.service'
 import { DocumentService } from './services/document.service'

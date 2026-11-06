@@ -7,7 +7,7 @@ import {
 } from '../document.constant'
 import { DocumentMetaService } from './document-meta.service'
 
-describe('DocumentMetaService', () => {
+describe('documentMetaService', () => {
   let service: DocumentMetaService
 
   beforeEach(() => {

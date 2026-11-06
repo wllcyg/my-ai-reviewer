@@ -1,5 +1,5 @@
-import type { ConfirmChannel } from 'amqplib'
 import type { AmqpConnectionManager, ChannelWrapper } from 'amqp-connection-manager'
+import type { ConfirmChannel, ConsumeMessage } from 'amqplib'
 import {
   Injectable,
   Logger,
@@ -13,16 +13,22 @@ import {
   DOC_PROCESS_DEAD_EXCHANGE,
   DOC_PROCESS_DEAD_QUEUE,
   DOC_PROCESS_DEAD_ROUTING_KEY,
-  DOC_PROCESS_EXCHANGE,
-  DOC_PROCESS_QUEUE,
-  DOC_PROCESS_ROUTING_KEY,
+  DOC_QUEUES,
+  DOC_ROUTING_KEYS,
+  DOC_TOPIC_EXCHANGE,
 } from './mq.constants'
+
+export interface ConsumerOptions {
+  /** 消费者限流预取数量，默认 1 (严格削峰) */
+  prefetch?: number
+}
 
 @Injectable()
 export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RabbitMqService.name)
   private connection: AmqpConnectionManager | null = null
   private channelWrapper: ChannelWrapper | null = null
+  private readonly consumerChannels: ChannelWrapper[] = []
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -87,17 +93,102 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
     await channel.bindQueue(DOC_PROCESS_DEAD_QUEUE, DOC_PROCESS_DEAD_EXCHANGE, DOC_PROCESS_DEAD_ROUTING_KEY)
 
     // 2. 声明主业务 Topic 交换机
-    await channel.assertExchange(DOC_PROCESS_EXCHANGE, 'topic', { durable: true })
+    await channel.assertExchange(DOC_TOPIC_EXCHANGE, 'topic', { durable: true })
 
-    // 3. 声明 AI 处理队列（配置死信路由：当消息被拒绝或超时时自动落入死信队列）
-    await channel.assertQueue(DOC_PROCESS_QUEUE, {
+    // 3. 声明三路独立衍生业务队列 (均挂载死信路由)
+    // 3.1 向量化写入专用队列 (Cloudflare Vectorize)
+    await channel.assertQueue(DOC_QUEUES.INDEX_VECTOR, {
       durable: true,
       deadLetterExchange: DOC_PROCESS_DEAD_EXCHANGE,
       deadLetterRoutingKey: DOC_PROCESS_DEAD_ROUTING_KEY,
     })
+    await channel.bindQueue(DOC_QUEUES.INDEX_VECTOR, DOC_TOPIC_EXCHANGE, DOC_ROUTING_KEYS.INDEX_VECTOR)
 
-    // 4. 将业务队列绑定到 Topic 交换机
-    await channel.bindQueue(DOC_PROCESS_QUEUE, DOC_PROCESS_EXCHANGE, DOC_PROCESS_ROUTING_KEY)
+    // 3.2 Elasticsearch 全文倒排专用队列
+    await channel.assertQueue(DOC_QUEUES.INDEX_ES, {
+      durable: true,
+      deadLetterExchange: DOC_PROCESS_DEAD_EXCHANGE,
+      deadLetterRoutingKey: DOC_PROCESS_DEAD_ROUTING_KEY,
+    })
+    await channel.bindQueue(DOC_QUEUES.INDEX_ES, DOC_TOPIC_EXCHANGE, DOC_ROUTING_KEYS.INDEX_ES)
+
+    // 3.3 知识图谱三元组抽取专用队列 (Neo4j)
+    await channel.assertQueue(DOC_QUEUES.INDEX_GRAPH, {
+      durable: true,
+      deadLetterExchange: DOC_PROCESS_DEAD_EXCHANGE,
+      deadLetterRoutingKey: DOC_PROCESS_DEAD_ROUTING_KEY,
+    })
+    await channel.bindQueue(DOC_QUEUES.INDEX_GRAPH, DOC_TOPIC_EXCHANGE, DOC_ROUTING_KEYS.INDEX_GRAPH)
+
+    // 4. 声明旧 AI 处理队列（兼容老版本全量任务流）
+    await channel.assertQueue(DOC_QUEUES.LEGACY_PROCESS, {
+      durable: true,
+      deadLetterExchange: DOC_PROCESS_DEAD_EXCHANGE,
+      deadLetterRoutingKey: DOC_PROCESS_DEAD_ROUTING_KEY,
+    })
+    await channel.bindQueue(DOC_QUEUES.LEGACY_PROCESS, DOC_TOPIC_EXCHANGE, DOC_ROUTING_KEYS.START)
+
+    this.logger.log(`[MQ Topology] 基础拓扑就绪: 1个Topic交换机 [${DOC_TOPIC_EXCHANGE}] ➔ 3个业务队列 [Vector, ES, Graph]`)
+  }
+
+  /**
+   * 注册指定队列的消费者（带 QoS 限流、自愈重连、手动 ACK/NACK）
+   * @param queueName 队列名 (如 DOC_QUEUES.INDEX_VECTOR)
+   * @param onMessage 业务处理回调
+   * @param options 消费者配置（如 prefetch 削峰）
+   */
+  async consume<T = any>(
+    queueName: string,
+    onMessage: (data: T, rawMsg: ConsumeMessage) => Promise<void>,
+    options: ConsumerOptions = {},
+  ): Promise<void> {
+    if (!this.connection) {
+      this.logger.warn(`RabbitMQ 连接实例尚未就绪，暂缓绑定队列消费者: ${queueName}`)
+      return
+    }
+
+    const prefetch = options.prefetch ?? 1
+
+    const consumerChannel = this.connection.createChannel({
+      setup: async (channel: ConfirmChannel) => {
+        // 设置消费者 QoS (防止瞬时大流量撑爆内存)
+        await channel.prefetch(prefetch)
+
+        await channel.consume(
+          queueName,
+          async (msg: ConsumeMessage | null) => {
+            if (!msg)
+              return
+
+            let parsed: T
+            try {
+              parsed = JSON.parse(msg.content.toString()) as T
+            }
+            catch (parseErr) {
+              this.logger.error(`[MQ Consumer] 消息反序列化失败，送入死信: ${parseErr}`)
+              channel.nack(msg, false, false)
+              return
+            }
+
+            try {
+              await onMessage(parsed, msg)
+              // 业务处理成功，手动签收
+              channel.ack(msg)
+            }
+            catch (err: any) {
+              this.logger.error(`[MQ Consumer] 队列 [${queueName}] 消息处理失败: ${err.message || err}`, err.stack)
+              // 失败且不重回队列，交由 MQ 死信交换机流转排查
+              channel.nack(msg, false, false)
+            }
+          },
+          { noAck: false }, // 严格手动 ACK
+        )
+
+        this.logger.log(`[MQ Consumer] 已挂载消费者监听: 队列 [${queueName}] (QoS=${prefetch})`)
+      },
+    })
+
+    this.consumerChannels.push(consumerChannel)
   }
 
   /**
@@ -134,6 +225,9 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     try {
+      for (const ch of this.consumerChannels) {
+        await ch.close()
+      }
       await this.channelWrapper?.close()
       await this.connection?.close()
       this.logger.log('RabbitMQ 连接与信道已安全关闭')

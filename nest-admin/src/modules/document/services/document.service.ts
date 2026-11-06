@@ -8,8 +8,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm'
 import { EntityManager, QueryFailedError, Repository } from 'typeorm'
 
-import { generateUUID } from '~/utils'
+import { DocContentService } from '~/shared/mongo/services/doc-content.service'
 
+import { DocParserService } from '~/shared/parser/doc-parser.service'
+import { generateUUID } from '~/utils'
 import { DocumentApprovalEntity } from '../document-approval.entity'
 import {
   ApprovalActionEnum,
@@ -27,8 +29,6 @@ import {
   UploadSignResultDto,
 } from '../dto/upload-sign.dto'
 import { R2StorageService } from '../r2-storage.service'
-import { DocContentService } from '~/shared/mongo/services/doc-content.service'
-import { DocParserService } from '~/shared/parser/doc-parser.service'
 import { DocumentApprovalService } from './document-approval.service'
 import { lockDocumentByCode } from './document-lock.util'
 import { DocumentPermissionService } from './document-permission.service'

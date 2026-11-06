@@ -1,19 +1,19 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { EntityManager, Repository } from 'typeorm'
 
+import { DocumentApprovalEntity } from '../document-approval.entity'
 import {
   ApprovalActionEnum,
   ApprovalNodeTypeEnum,
   DocumentStatusEnum,
   ReviewStatusEnum,
 } from '../document.constant'
-import { DocumentApprovalEntity } from '../document-approval.entity'
 import { DocumentEntity } from '../document.entity'
 import { AuditActionEnum } from '../dto/audit-document.dto'
 import { DocumentApprovalService } from './document-approval.service'
 import { DocumentPermissionService } from './document-permission.service'
 
-describe('DocumentApprovalService', () => {
+describe('documentApprovalService', () => {
   let service: DocumentApprovalService
   let mockDocRepo: Partial<Repository<DocumentEntity>>
   let mockApprovalRepo: Partial<Repository<DocumentApprovalEntity>>
@@ -47,7 +47,7 @@ describe('DocumentApprovalService', () => {
   beforeEach(() => {
     mockManager = {
       findOne: jest.fn(),
-      save: jest.fn().mockImplementation((entity) => Promise.resolve(entity)),
+      save: jest.fn().mockImplementation(entity => Promise.resolve(entity)),
       create: jest.fn().mockImplementation((_, entity) => entity),
       delete: jest.fn().mockResolvedValue({ affected: 1 } as any),
     }
@@ -60,8 +60,8 @@ describe('DocumentApprovalService', () => {
 
     mockApprovalRepo = {
       find: jest.fn(),
-      create: jest.fn().mockImplementation((entity) => entity),
-      save: jest.fn().mockImplementation((entity) => Promise.resolve(entity)),
+      create: jest.fn().mockImplementation(entity => entity),
+      save: jest.fn().mockImplementation(entity => Promise.resolve(entity)),
     }
 
     permissionService = new DocumentPermissionService()

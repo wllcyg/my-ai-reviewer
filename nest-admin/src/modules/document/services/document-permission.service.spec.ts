@@ -7,7 +7,7 @@ import {
 import { DocumentEntity } from '../document.entity'
 import { DocumentPermissionService } from './document-permission.service'
 
-describe('DocumentPermissionService', () => {
+describe('documentPermissionService', () => {
   let service: DocumentPermissionService
 
   const adminUser: IAuthUser = {

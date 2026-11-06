@@ -7,4 +7,3 @@ export class UpdateDocContentDto {
   @IsNotEmpty({ message: 'Markdown 内容不能为空' })
   markdownContent: string
 }
-

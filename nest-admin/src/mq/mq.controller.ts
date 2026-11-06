@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Post } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post } from '@nestjs/common'
 import { ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger'
 import { nanoid } from 'nanoid'
 import { Public } from '~/modules/auth/decorators/public.decorator'
+import { DocumentIndexTaskService } from '~/modules/document/services/document-index-task.service'
 import { DocumentPipelinePublisher } from './document-pipeline.publisher'
 import { DOC_PROCESS_QUEUE } from './mq.constants'
 import { RabbitMqService } from './rabbitmq.service'
@@ -30,6 +31,7 @@ export class MqController {
   constructor(
     private readonly publisher: DocumentPipelinePublisher,
     private readonly rabbitMqService: RabbitMqService,
+    private readonly indexTaskService: DocumentIndexTaskService,
   ) {}
 
   @Post('publish')
@@ -58,6 +60,51 @@ export class MqController {
       fileId,
       queue: DOC_PROCESS_QUEUE,
       message: success ? '✅ 任务已发布到 CloudAMQP' : '❌ 发布失败',
+      timestamp: new Date().toISOString(),
+    }
+  }
+
+  @Post('publish-vector')
+  @ApiOperation({ summary: '向向量化专用通道发布测试任务 (doc.index.vector)' })
+  async publishVectorTest(@Body() body: { docCode?: string, title?: string, chunkCount?: number }) {
+    const docCode = body.docCode || `doc_vec_${nanoid(6)}`
+    const count = body.chunkCount || 3
+    const chunks = Array.from({ length: count }, (_, i) => ({
+      chunkIndex: i,
+      content: `这是第 ${i + 1} 块测试文本内容，用于测试 RabbitMQ 向量化专用通道的流通性。`,
+      headingPath: `第一章 测试 > 第 ${i + 1} 节 详情`,
+      scope: 'PUBLIC',
+    }))
+
+    // 1. 先初始化三路索引任务记录 (Vector, ES, Graph)
+    await this.indexTaskService.initTasks(docCode, chunks.length)
+
+    // 2. 投递向量专用通道
+    const success = await this.publisher.sendVectorIndexTask({
+      docCode,
+      docId: 9999,
+      title: body.title || '向量通道测试文档',
+      fileType: 'md',
+      chunks,
+    })
+
+    return {
+      success,
+      docCode,
+      chunkCount: chunks.length,
+      routingKey: 'doc.index.vector',
+      message: success ? '✅ 任务已初始化入库，并已发布至 doc.index.vector 通道' : '❌ 发布失败',
+      timestamp: new Date().toISOString(),
+    }
+  }
+
+  @Get('index-tasks/:docCode')
+  @ApiOperation({ summary: '查询某文档在 doc_index_tasks 表中的三路处理状态' })
+  async getIndexTasks(@Param('docCode') docCode: string) {
+    const tasks = await this.indexTaskService.getTasksByDocCode(docCode)
+    return {
+      docCode,
+      tasks,
       timestamp: new Date().toISOString(),
     }
   }
