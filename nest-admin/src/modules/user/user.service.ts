@@ -47,6 +47,7 @@ export class UserService {
   async findUserById(id: number): Promise<UserEntity | undefined> {
     return this.userRepository
       .createQueryBuilder('user')
+      .leftJoinAndSelect('user.dept', 'dept')
       .where({
         id,
         status: UserStatus.Enabled,

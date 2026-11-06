@@ -7,6 +7,8 @@ declare global {
     /** 签发时间 */
     iat?: number
     roles?: string[]
+    /** 所属部门 ID */
+    deptId?: number
   }
 
   export interface IBaseResponse<T = any> {

@@ -42,6 +42,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, AuthStrategy.JWT) {
       exp: payload.exp,
       iat: payload.iat,
       roles,
+      deptId: user.dept?.id,
     }
   }
 }

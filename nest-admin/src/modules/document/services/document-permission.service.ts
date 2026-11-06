@@ -30,13 +30,25 @@ export class DocumentPermissionService {
   }
 
   /**
-   * 单文档读权限：管理员、创建者、公开文档可访问；审核人可访问非草稿文档
+   * 单文档读权限：
+   * 1. 管理员或创建者拥有完全访问权限
+   * 2. 全员公开文档 (PUBLIC) 允许任意登录用户查看
+   * 3. 部门内部文档 (DEPT) 仅限所属部门在 visibleDeptIds 列表中的用户查看
+   * 4. 审核人可访问非草稿状态的流转/发布文档
    */
   canAccessDocument(document: DocumentEntity, user: IAuthUser): boolean {
     if (this.isAdmin(user) || this.isOwner(document, user)) {
       return true
     }
     if (document.scope === DocumentScopeEnum.PUBLIC) {
+      return true
+    }
+    if (
+      document.scope === DocumentScopeEnum.DEPT
+      && user.deptId
+      && Array.isArray(document.visibleDeptIds)
+      && document.visibleDeptIds.includes(user.deptId)
+    ) {
       return true
     }
     return this.isReviewer(user) && document.status !== DocumentStatusEnum.DRAFT
@@ -51,13 +63,22 @@ export class DocumentPermissionService {
       return
     }
     const conditions = ['doc.scope = :pubScope', 'doc.create_by = :uid']
-    if (this.isReviewer(user)) {
-      conditions.push('doc.status <> :draftStatus')
-    }
-    qb.andWhere(`(${conditions.join(' OR ')})`, {
+    const parameters: Record<string, any> = {
       pubScope: DocumentScopeEnum.PUBLIC,
       uid: user.uid,
       draftStatus: DocumentStatusEnum.DRAFT,
-    })
+    }
+
+    if (user.deptId) {
+      conditions.push('(doc.scope = :deptScope AND JSON_CONTAINS(doc.visible_dept_ids, :userDeptId))')
+      parameters.deptScope = DocumentScopeEnum.DEPT
+      parameters.userDeptId = JSON.stringify(user.deptId)
+    }
+
+    if (this.isReviewer(user)) {
+      conditions.push('doc.status <> :draftStatus')
+    }
+
+    qb.andWhere(`(${conditions.join(' OR ')})`, parameters)
   }
 }

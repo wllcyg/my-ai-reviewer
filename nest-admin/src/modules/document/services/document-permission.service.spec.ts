@@ -34,9 +34,23 @@ describe('DocumentPermissionService', () => {
     roles: ['common_user'],
   } as any
 
-  const anotherUser: IAuthUser = {
+  const deptUser101: IAuthUser = {
     uid: 5,
-    username: 'user5',
+    username: 'deptUser101',
+    roles: ['common_user'],
+    deptId: 101,
+  } as any
+
+  const deptUser102: IAuthUser = {
+    uid: 6,
+    username: 'deptUser102',
+    roles: ['common_user'],
+    deptId: 102,
+  } as any
+
+  const anotherUser: IAuthUser = {
+    uid: 7,
+    username: 'user7',
     roles: ['common_user'],
   } as any
 
@@ -123,6 +137,24 @@ describe('DocumentPermissionService', () => {
       expect(service.canAccessDocument(draftDoc, reviewerUser)).toBe(false)
     })
 
+    it('部门内部文档 (DEPT) 仅匹配部门的用户或创建者/管理员可访问', () => {
+      const deptDoc = {
+        scope: DocumentScopeEnum.DEPT,
+        status: DocumentStatusEnum.PUBLISHED,
+        visibleDeptIds: [101, 103],
+        createBy: 99,
+      } as DocumentEntity
+
+      // 部门匹配的用户可访问
+      expect(service.canAccessDocument(deptDoc, deptUser101)).toBe(true)
+      // 部门不匹配的用户无法访问
+      expect(service.canAccessDocument(deptDoc, deptUser102)).toBe(false)
+      // 未绑定部门的普通用户无法访问
+      expect(service.canAccessDocument(deptDoc, normalUser)).toBe(false)
+      // 管理员仍可访问
+      expect(service.canAccessDocument(deptDoc, adminUser)).toBe(true)
+    })
+
     it('非作者普通用户无法访问他人的私密非公开文档', () => {
       const privateDoc = {
         scope: DocumentScopeEnum.PRIVATE,
@@ -148,7 +180,7 @@ describe('DocumentPermissionService', () => {
       expect(mockQb.andWhere).not.toHaveBeenCalled()
     })
 
-    it('普通用户仅能查询 PUBLIC 或自己创建的文档', () => {
+    it('未绑定部门的普通用户仅能查询 PUBLIC 或自己创建的文档', () => {
       service.applyVisibilityFilter(mockQb as SelectQueryBuilder<DocumentEntity>, normalUser)
       expect(mockQb.andWhere).toHaveBeenCalledWith(
         '(doc.scope = :pubScope OR doc.create_by = :uid)',
@@ -156,6 +188,20 @@ describe('DocumentPermissionService', () => {
           pubScope: DocumentScopeEnum.PUBLIC,
           uid: normalUser.uid,
           draftStatus: DocumentStatusEnum.DRAFT,
+        },
+      )
+    })
+
+    it('绑定部门的普通用户可同时查询其所属部门公开的文档', () => {
+      service.applyVisibilityFilter(mockQb as SelectQueryBuilder<DocumentEntity>, deptUser101)
+      expect(mockQb.andWhere).toHaveBeenCalledWith(
+        '(doc.scope = :pubScope OR doc.create_by = :uid OR (doc.scope = :deptScope AND JSON_CONTAINS(doc.visible_dept_ids, :userDeptId)))',
+        {
+          pubScope: DocumentScopeEnum.PUBLIC,
+          uid: deptUser101.uid,
+          draftStatus: DocumentStatusEnum.DRAFT,
+          deptScope: DocumentScopeEnum.DEPT,
+          userDeptId: '101',
         },
       )
     })
