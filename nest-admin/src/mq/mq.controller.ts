@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid'
 import { Public } from '~/modules/auth/decorators/public.decorator'
 import { DocumentIndexTaskService } from '~/modules/document/services/document-index-task.service'
 import { DocumentPipelinePublisher } from './document-pipeline.publisher'
-import { DOC_PROCESS_QUEUE } from './mq.constants'
+import { DOC_QUEUES } from './mq.constants'
 import { RabbitMqService } from './rabbitmq.service'
 
 class PublishTestDto {
@@ -58,7 +58,7 @@ export class MqController {
       taskId,
       docCode,
       fileId,
-      queue: DOC_PROCESS_QUEUE,
+      queue: DOC_QUEUES.VECTOR,
       message: success ? '✅ 任务已发布到 CloudAMQP' : '❌ 发布失败',
       timestamp: new Date().toISOString(),
     }
@@ -116,7 +116,7 @@ export class MqController {
 
     return {
       connected: isConnected,
-      queue: DOC_PROCESS_QUEUE,
+      queue: DOC_QUEUES.VECTOR,
       status: isConnected ? 'healthy' : 'disconnected',
       message: isConnected
         ? '✅ RabbitMQ 连接正常（详细队列统计请访问 CloudAMQP 管理界面）'

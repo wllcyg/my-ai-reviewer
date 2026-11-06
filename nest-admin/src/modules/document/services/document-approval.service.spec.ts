@@ -67,6 +67,14 @@ describe('documentApprovalService', () => {
     permissionService = new DocumentPermissionService()
     const mockDocPublisher = {
       sendDocProcessTask: jest.fn().mockResolvedValue(true),
+      sendVectorIndexTask: jest.fn().mockResolvedValue(true),
+    } as any
+
+    const mockIndexTaskService = {
+      initTasks: jest.fn().mockResolvedValue([]),
+      markProcessing: jest.fn().mockResolvedValue(undefined),
+      markCompleted: jest.fn().mockResolvedValue(undefined),
+      markFailed: jest.fn().mockResolvedValue(undefined),
     } as any
 
     service = new DocumentApprovalService(
@@ -74,6 +82,7 @@ describe('documentApprovalService', () => {
       mockApprovalRepo as Repository<DocumentApprovalEntity>,
       permissionService,
       mockDocPublisher,
+      mockIndexTaskService,
     )
   })
 

@@ -237,6 +237,7 @@
     documentSubmitReview,
     documentAudit,
     documentGetMeta,
+    documentReVector,
     type DocumentMetaResult,
   } from '@/api/backend/api/document';
   import DocumentUploadModal from './components/DocumentUploadModal.vue';
@@ -307,14 +308,19 @@
     reportDrawerVisible.value = true;
   };
 
-  const handleReVector = (record: DocumentItem) => {
-    record.vectorStatus = 'PARSING';
-    message.loading(`正在通知向量服务对《${record.title}》重新切片并入库...`, 1.5);
-    setTimeout(() => {
-      record.vectorStatus = 'READY';
-      message.success(`《${record.title}》向量化更新完成`);
+  const handleReVector = async (record: DocumentItem) => {
+    if (!record.docCode) return;
+    try {
+      record.vectorStatus = 'processing';
+      await documentReVector(record.docCode);
+      message.success(`《${record.title}》已成功向消息总线派发重新向量化任务`);
+      setTimeout(() => {
+        dynamicTableInstance?.reload();
+      }, 1000);
+    } catch (err: any) {
+      message.error(`重新向量化失败: ${err?.message || '未知错误'}`);
       dynamicTableInstance?.reload();
-    }, 1800);
+    }
   };
 
   const handleDelete = async (record: DocumentItem) => {

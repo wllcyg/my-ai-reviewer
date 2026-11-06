@@ -18,6 +18,7 @@ import {
 import { DocumentEntity } from '../document.entity'
 import { AuditDocumentDto } from '../dto/audit-document.dto'
 import { QueryApprovalDto } from '../dto/query-approval.dto'
+import { DocumentIndexTaskService } from './document-index-task.service'
 import { lockDocumentByCode } from './document-lock.util'
 import { DocumentPermissionService } from './document-permission.service'
 
@@ -46,6 +47,7 @@ export class DocumentApprovalService {
     private readonly approvalRepo: Repository<DocumentApprovalEntity>,
     private readonly permission: DocumentPermissionService,
     private readonly docPublisher: DocumentPipelinePublisher,
+    private readonly indexTaskService: DocumentIndexTaskService,
   ) {}
 
   /**
@@ -205,23 +207,34 @@ export class DocumentApprovalService {
       `文档 [${code}] 审核完成: ${dto.action}, 操作者: ${user.uid}`,
     )
 
-    // 审核通过后，异步投递文档至 RabbitMQ 进行分块与向量化（不阻塞 HTTP 响应）
+    // 审核通过后，异步触发多路衍生索引任务与 RabbitMQ 向量化管道（不阻塞 HTTP 响应）
     if (dto.action === 'APPROVE') {
-      this.docPublisher
-        .sendDocProcessTask({
-          taskId: `task_${savedDoc.docCode}_${Date.now()}`,
+      const runPipeline = async () => {
+        // 1. 初始化三路索引任务记录 (Vector, ES, Graph)
+        const initialChunks = [
+          {
+            chunkIndex: 0,
+            content: `文档《${savedDoc.title}》已审核发布，准备进入向量化知识加工。`,
+            headingPath: '第一章 发布正文',
+            scope: savedDoc.scope || 'PUBLIC',
+            visibleDeptIds: savedDoc.visibleDeptIds || [],
+          },
+        ]
+        await this.indexTaskService.initTasks(savedDoc.docCode, initialChunks.length)
+
+        // 2. 投递向量专用通道
+        await this.docPublisher.sendVectorIndexTask({
           docCode: savedDoc.docCode,
           docId: savedDoc.id,
           title: savedDoc.title,
           fileType: savedDoc.fileType,
-          storageKey: savedDoc.storageKey,
-          visibleRange: savedDoc.scope || 'PUBLIC',
-          deptIds: savedDoc.visibleDeptIds || [],
-          creatorId: savedDoc.createBy,
+          chunks: initialChunks,
         })
-        .catch((err) => {
-          this.logger.error(`[MQ 异常] 文档 ${code} 异步投递失败: ${err.message}`)
-        })
+      }
+
+      runPipeline().catch((err) => {
+        this.logger.error(`[MQ 异常] 文档 ${code} 异步索引流水线触发失败: ${err.message}`)
+      })
     }
 
     return savedDoc

@@ -85,7 +85,8 @@ export class AuthService {
     const permissions = await this.menuService.getPermissions(user.id)
     await this.setPermissionsCache(user.id, permissions)
 
-    await this.loginLogService.create(user.id, ip, ua)
+    // 异步记录登录日志，避免外部 IP 归属地网络查询阻塞主登录流程导致 408 请求超时
+    this.loginLogService.create(user.id, ip, ua).catch(err => this.logger.warn(`记录登录日志失败: ${err.message}`))
 
     return token.accessToken
   }

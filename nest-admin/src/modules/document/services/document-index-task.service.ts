@@ -8,7 +8,9 @@ import {
 import {
   DocIndexStatusEnum,
   DocIndexTypeEnum,
+  VectorStatusEnum,
 } from '../document.constant'
+import { DocumentEntity } from '../document.entity'
 
 @Injectable()
 export class DocumentIndexTaskService {
@@ -17,6 +19,8 @@ export class DocumentIndexTaskService {
   constructor(
     @InjectRepository(DocumentIndexTaskEntity)
     private readonly taskRepo: Repository<DocumentIndexTaskEntity>,
+    @InjectRepository(DocumentEntity)
+    private readonly docRepo: Repository<DocumentEntity>,
   ) {}
 
   /**
@@ -76,6 +80,11 @@ export class DocumentIndexTaskService {
         }),
       )
     }
+
+    // 同步回写文档主表 vector_status 为 processing
+    if (indexType === DocIndexTypeEnum.VECTOR) {
+      await this.docRepo.update({ docCode }, { vectorStatus: VectorStatusEnum.PROCESSING })
+    }
   }
 
   /**
@@ -85,17 +94,29 @@ export class DocumentIndexTaskService {
     docCode: string,
     indexType: DocIndexType,
     costMs: number,
+    chunkCount?: number,
   ): Promise<void> {
+    const updatePayload: Record<string, any> = {
+      status: DocIndexStatusEnum.COMPLETED,
+      costMs,
+      errorMessage: undefined,
+      completedAt: new Date(),
+    }
+    if (typeof chunkCount === 'number') {
+      updatePayload.chunkCount = chunkCount
+    }
+
     await this.taskRepo.update(
       { docCode, indexType },
-      {
-        status: DocIndexStatusEnum.COMPLETED,
-        costMs,
-        errorMessage: undefined,
-        completedAt: new Date(),
-      },
+      updatePayload,
     )
-    this.logger.log(`[IndexTask] ✅ 文档 ${docCode} 的 [${indexType}] 索引构建完成, 耗时=${costMs}ms`)
+
+    // 同步回写文档主表 vector_status 为 completed
+    if (indexType === DocIndexTypeEnum.VECTOR) {
+      await this.docRepo.update({ docCode }, { vectorStatus: VectorStatusEnum.COMPLETED })
+    }
+
+    this.logger.log(`[IndexTask] ✅ 文档 ${docCode} 的 [${indexType}] 索引构建完成, 切块数=${chunkCount ?? '-'}, 耗时=${costMs}ms`)
   }
 
   /**
@@ -113,6 +134,12 @@ export class DocumentIndexTaskService {
         errorMessage: errorMessage.slice(0, 2000), // 防止报错过长
       },
     )
+
+    // 同步回写文档主表 vector_status 为 failed
+    if (indexType === DocIndexTypeEnum.VECTOR) {
+      await this.docRepo.update({ docCode }, { vectorStatus: VectorStatusEnum.FAILED })
+    }
+
     this.logger.error(`[IndexTask] ❌ 文档 ${docCode} 的 [${indexType}] 索引构建失败: ${errorMessage}`)
   }
 

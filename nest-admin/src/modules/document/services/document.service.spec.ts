@@ -97,6 +97,17 @@ describe('documentService', () => {
       deleteByCode: jest.fn().mockResolvedValue(true),
     }
 
+    const mockDocPublisher = {
+      sendVectorIndexTask: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const mockIndexTaskService = {
+      initTasks: jest.fn().mockResolvedValue([]),
+      markProcessing: jest.fn().mockResolvedValue(undefined),
+      markCompleted: jest.fn().mockResolvedValue(undefined),
+      markFailed: jest.fn().mockResolvedValue(undefined),
+    }
+
     service = new DocumentService(
       mockDocRepo as Repository<DocumentEntity>,
       mockR2StorageService as R2StorageService,
@@ -104,6 +115,8 @@ describe('documentService', () => {
       mockApprovalService as DocumentApprovalService,
       mockDocParserService as DocParserService,
       mockDocContentService as DocContentService,
+      mockDocPublisher as any,
+      mockIndexTaskService as any,
     )
   })
 

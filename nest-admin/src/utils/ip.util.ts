@@ -56,7 +56,7 @@ export async function getIpAddress(ip: string) {
   try {
     let { data } = await axios.get(
       `https://whois.pconline.com.cn/ipJson.jsp?ip=${ip}&json=true`,
-      { responseType: 'arraybuffer' },
+      { responseType: 'arraybuffer', timeout: 1500 },
     )
     data = new TextDecoder('gbk').decode(data)
     data = JSON.parse(data)

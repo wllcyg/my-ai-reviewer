@@ -237,3 +237,12 @@ export async function documentApprovalRecordList(
   });
 }
 
+/** 重新触发文档切片与多路衍生向量化管道 POST /api/documents/:code/re-vector */
+export async function documentReVector(code: string, options?: RequestOptions) {
+  return request<DocumentItemEntity>(`/api/documents/${code}/re-vector`, {
+    method: 'POST',
+    ...(options || {}),
+  });
+}
+
+

@@ -166,4 +166,15 @@ export class DocumentController {
   ): Promise<void> {
     await this.documentService.deleteByCode(code, user)
   }
+
+  @Post(':code/re-vector')
+  @ApiOperation({ summary: '重新触发文档切片与多路衍生向量化管道' })
+  @ApiOkResponse({ type: DocumentEntity })
+  @ApiResult({ type: DocumentEntity })
+  async reVector(
+    @Param('code') code: string,
+    @AuthUser() user: IAuthUser,
+  ): Promise<DocumentEntity> {
+    return this.documentService.reVector(code, user)
+  }
 }

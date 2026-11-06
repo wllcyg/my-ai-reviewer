@@ -3,10 +3,8 @@ import type { DocChunkItem, DocVectorMessage } from './messages/doc-vector.messa
 import { Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 import {
-  DOC_PROCESS_EXCHANGE,
-  DOC_PROCESS_ROUTING_KEY,
+  DOC_EXCHANGE,
   DOC_ROUTING_KEYS,
-  DOC_TOPIC_EXCHANGE,
 } from './mq.constants'
 import { RabbitMqService } from './rabbitmq.service'
 
@@ -60,8 +58,8 @@ export class DocumentPipelinePublisher {
     }
 
     const success = await this.rabbitMqService.publish(
-      DOC_PROCESS_EXCHANGE,
-      DOC_PROCESS_ROUTING_KEY,
+      DOC_EXCHANGE,
+      'doc.process.start',
       message,
     )
 
@@ -101,9 +99,9 @@ export class DocumentPipelinePublisher {
       timestamp: Date.now(),
     }
 
-    const routingKey = DOC_ROUTING_KEYS.INDEX_VECTOR
+    const routingKey = DOC_ROUTING_KEYS.VECTOR
     const success = await this.rabbitMqService.publish(
-      DOC_TOPIC_EXCHANGE,
+      DOC_EXCHANGE,
       routingKey,
       message,
     )

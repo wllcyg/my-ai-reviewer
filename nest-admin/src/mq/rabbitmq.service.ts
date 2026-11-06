@@ -10,12 +10,12 @@ import { ConfigService } from '@nestjs/config'
 import amqp from 'amqp-connection-manager'
 
 import {
-  DOC_PROCESS_DEAD_EXCHANGE,
-  DOC_PROCESS_DEAD_QUEUE,
-  DOC_PROCESS_DEAD_ROUTING_KEY,
+  DOC_DEAD_EXCHANGE,
+  DOC_DEAD_QUEUE,
+  DOC_DEAD_ROUTING_KEY,
+  DOC_EXCHANGE,
   DOC_QUEUES,
   DOC_ROUTING_KEYS,
-  DOC_TOPIC_EXCHANGE,
 } from './mq.constants'
 
 export interface ConsumerOptions {
@@ -88,52 +88,44 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
    */
   private async assertTopology(channel: ConfirmChannel) {
     // 1. 声明死信交换机与死信队列（用于容纳多次消费失败的毒丸消息）
-    await channel.assertExchange(DOC_PROCESS_DEAD_EXCHANGE, 'topic', { durable: true })
-    await channel.assertQueue(DOC_PROCESS_DEAD_QUEUE, { durable: true })
-    await channel.bindQueue(DOC_PROCESS_DEAD_QUEUE, DOC_PROCESS_DEAD_EXCHANGE, DOC_PROCESS_DEAD_ROUTING_KEY)
+    await channel.assertExchange(DOC_DEAD_EXCHANGE, 'topic', { durable: true })
+    await channel.assertQueue(DOC_DEAD_QUEUE, { durable: true })
+    await channel.bindQueue(DOC_DEAD_QUEUE, DOC_DEAD_EXCHANGE, DOC_DEAD_ROUTING_KEY)
 
     // 2. 声明主业务 Topic 交换机
-    await channel.assertExchange(DOC_TOPIC_EXCHANGE, 'topic', { durable: true })
+    await channel.assertExchange(DOC_EXCHANGE, 'topic', { durable: true })
 
     // 3. 声明三路独立衍生业务队列 (均挂载死信路由)
     // 3.1 向量化写入专用队列 (Cloudflare Vectorize)
-    await channel.assertQueue(DOC_QUEUES.INDEX_VECTOR, {
+    await channel.assertQueue(DOC_QUEUES.VECTOR, {
       durable: true,
-      deadLetterExchange: DOC_PROCESS_DEAD_EXCHANGE,
-      deadLetterRoutingKey: DOC_PROCESS_DEAD_ROUTING_KEY,
+      deadLetterExchange: DOC_DEAD_EXCHANGE,
+      deadLetterRoutingKey: DOC_DEAD_ROUTING_KEY,
     })
-    await channel.bindQueue(DOC_QUEUES.INDEX_VECTOR, DOC_TOPIC_EXCHANGE, DOC_ROUTING_KEYS.INDEX_VECTOR)
+    await channel.bindQueue(DOC_QUEUES.VECTOR, DOC_EXCHANGE, DOC_ROUTING_KEYS.VECTOR)
 
     // 3.2 Elasticsearch 全文倒排专用队列
-    await channel.assertQueue(DOC_QUEUES.INDEX_ES, {
+    await channel.assertQueue(DOC_QUEUES.ES, {
       durable: true,
-      deadLetterExchange: DOC_PROCESS_DEAD_EXCHANGE,
-      deadLetterRoutingKey: DOC_PROCESS_DEAD_ROUTING_KEY,
+      deadLetterExchange: DOC_DEAD_EXCHANGE,
+      deadLetterRoutingKey: DOC_DEAD_ROUTING_KEY,
     })
-    await channel.bindQueue(DOC_QUEUES.INDEX_ES, DOC_TOPIC_EXCHANGE, DOC_ROUTING_KEYS.INDEX_ES)
+    await channel.bindQueue(DOC_QUEUES.ES, DOC_EXCHANGE, DOC_ROUTING_KEYS.ES)
 
     // 3.3 知识图谱三元组抽取专用队列 (Neo4j)
-    await channel.assertQueue(DOC_QUEUES.INDEX_GRAPH, {
+    await channel.assertQueue(DOC_QUEUES.GRAPH, {
       durable: true,
-      deadLetterExchange: DOC_PROCESS_DEAD_EXCHANGE,
-      deadLetterRoutingKey: DOC_PROCESS_DEAD_ROUTING_KEY,
+      deadLetterExchange: DOC_DEAD_EXCHANGE,
+      deadLetterRoutingKey: DOC_DEAD_ROUTING_KEY,
     })
-    await channel.bindQueue(DOC_QUEUES.INDEX_GRAPH, DOC_TOPIC_EXCHANGE, DOC_ROUTING_KEYS.INDEX_GRAPH)
+    await channel.bindQueue(DOC_QUEUES.GRAPH, DOC_EXCHANGE, DOC_ROUTING_KEYS.GRAPH)
 
-    // 4. 声明旧 AI 处理队列（兼容老版本全量任务流）
-    await channel.assertQueue(DOC_QUEUES.LEGACY_PROCESS, {
-      durable: true,
-      deadLetterExchange: DOC_PROCESS_DEAD_EXCHANGE,
-      deadLetterRoutingKey: DOC_PROCESS_DEAD_ROUTING_KEY,
-    })
-    await channel.bindQueue(DOC_QUEUES.LEGACY_PROCESS, DOC_TOPIC_EXCHANGE, DOC_ROUTING_KEYS.START)
-
-    this.logger.log(`[MQ Topology] 基础拓扑就绪: 1个Topic交换机 [${DOC_TOPIC_EXCHANGE}] ➔ 3个业务队列 [Vector, ES, Graph]`)
+    this.logger.log(`[MQ Topology] 基础拓扑就绪: 1个Topic交换机 [${DOC_EXCHANGE}] ➔ 3个业务队列 [Vector, ES, Graph]`)
   }
 
   /**
    * 注册指定队列的消费者（带 QoS 限流、自愈重连、手动 ACK/NACK）
-   * @param queueName 队列名 (如 DOC_QUEUES.INDEX_VECTOR)
+   * @param queueName 队列名 (如 DOC_QUEUES.VECTOR)
    * @param onMessage 业务处理回调
    * @param options 消费者配置（如 prefetch 削峰）
    */
@@ -151,9 +143,18 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
 
     const consumerChannel = this.connection.createChannel({
       setup: async (channel: ConfirmChannel) => {
-        // 设置消费者 QoS (防止瞬时大流量撑爆内存)
+        // 1. 消费者信道自声明队列与死信（幂等防竞争：保证监听前队列 100% 存在，彻底规避 Broker 404 NOT-FOUND）
+        await channel.assertExchange(DOC_DEAD_EXCHANGE, 'topic', { durable: true })
+        await channel.assertQueue(queueName, {
+          durable: true,
+          deadLetterExchange: DOC_DEAD_EXCHANGE,
+          deadLetterRoutingKey: DOC_DEAD_ROUTING_KEY,
+        })
+
+        // 2. 设置消费者 QoS (防止瞬时大流量撑爆内存)
         await channel.prefetch(prefetch)
 
+        // 3. 挂载监听消费
         await channel.consume(
           queueName,
           async (msg: ConsumeMessage | null) => {

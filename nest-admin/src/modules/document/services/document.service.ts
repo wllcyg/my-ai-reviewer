@@ -11,6 +11,7 @@ import { EntityManager, QueryFailedError, Repository } from 'typeorm'
 import { DocContentService } from '~/shared/mongo/services/doc-content.service'
 
 import { DocParserService } from '~/shared/parser/doc-parser.service'
+import { DocumentPipelinePublisher } from '~/mq/document-pipeline.publisher'
 import { generateUUID } from '~/utils'
 import { DocumentApprovalEntity } from '../document-approval.entity'
 import {
@@ -30,6 +31,7 @@ import {
 } from '../dto/upload-sign.dto'
 import { R2StorageService } from '../r2-storage.service'
 import { DocumentApprovalService } from './document-approval.service'
+import { DocumentIndexTaskService } from './document-index-task.service'
 import { lockDocumentByCode } from './document-lock.util'
 import { DocumentPermissionService } from './document-permission.service'
 
@@ -48,6 +50,8 @@ export class DocumentService {
     private readonly approvalService: DocumentApprovalService,
     private readonly docParserService: DocParserService,
     private readonly docContentService: DocContentService,
+    private readonly docPublisher: DocumentPipelinePublisher,
+    private readonly indexTaskService: DocumentIndexTaskService,
   ) {}
 
   /**
@@ -318,5 +322,55 @@ export class DocumentService {
       throw new ForbiddenException('您无权访问该文档')
     }
     return this.r2StorageService.generatePresignedGetUrl(storageKey)
+  }
+
+  /**
+   * 重新触发文档的切片与多路衍生索引/向量化流程
+   */
+  async reVector(code: string, user: IAuthUser): Promise<DocumentEntity> {
+    const { document } = await this.findByCode(code, user)
+
+    if (document.status === DocumentStatusEnum.DRAFT) {
+      throw new BadRequestException('草稿状态文档暂不支持向量化，请先提交审核')
+    }
+
+    // 1. 同步更新主表向量化状态为 processing
+    document.vectorStatus = VectorStatusEnum.PROCESSING
+    document.updateBy = user.uid
+    const savedDoc = await this.docRepo.save(document)
+
+    // 2. 尝试从 MongoDB 获取正文或构建切片
+    let textContent = ''
+    try {
+      textContent = await this.docContentService.getContentByCode(code)
+    }
+    catch {
+      textContent = `文档《${savedDoc.title}》已发布，准备进入向量化知识加工。`
+    }
+
+    const chunks = [
+      {
+        chunkIndex: 0,
+        content: textContent ? textContent.slice(0, 2000) : `文档《${savedDoc.title}》已发布，准备进入向量化知识加工。`,
+        headingPath: '第一章 发布正文',
+        scope: savedDoc.scope || 'PUBLIC',
+        visibleDeptIds: savedDoc.visibleDeptIds || [],
+      },
+    ]
+
+    // 3. 重置初始化衍生索引任务表 (VECTOR, ES, GRAPH)
+    await this.indexTaskService.initTasks(savedDoc.docCode, chunks.length)
+
+    // 4. 派发消息至 RabbitMQ 向量通道
+    await this.docPublisher.sendVectorIndexTask({
+      docCode: savedDoc.docCode,
+      docId: savedDoc.id,
+      title: savedDoc.title,
+      fileType: savedDoc.fileType,
+      chunks,
+    })
+
+    this.logger.log(`[DocumentService] 已成功向消息总线派发重新向量化任务: ${code}`)
+    return savedDoc
   }
 }
