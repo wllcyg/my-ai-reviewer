@@ -30,6 +30,7 @@ import { MqModule } from './mq/mq.module'
 import { DatabaseModule } from './shared/database/database.module'
 import { MongoModule } from './shared/mongo/mongo.module'
 import { ParserModule } from './shared/parser/parser.module'
+import { VectorModule } from './shared/vector/vector.module'
 
 import { SocketModule } from './socket/socket.module'
 
@@ -61,6 +62,7 @@ import { SocketModule } from './socket/socket.module'
     DatabaseModule,
     MongoModule,
     ParserModule,
+    VectorModule,
     MqModule,
 
     AuthModule,

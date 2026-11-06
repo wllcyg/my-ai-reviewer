@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import Redis from 'ioredis'
 
 import { isEmpty } from 'lodash'
@@ -22,6 +22,8 @@ import { TokenService } from './services/token.service'
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name)
+
   constructor(
     @InjectRedis() private readonly redis: Redis,
     private menuService: MenuService,

@@ -1,13 +1,12 @@
 import type { ConsumeMessage } from 'amqplib'
-import type { DocVectorMessage } from '../messages/doc-vector.message'
-import type { Chunk } from '~/modules/document/splitter/markdown-splitter.interface'
-import type { Chunk } from '~/modules/document/splitter/markdown-splitter.interface'
-import type { DocVectorMessage } from '../messages/doc-vector.message'
 import { forwardRef, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { DocIndexTypeEnum } from '~/modules/document/document.constant'
 import { DocumentIndexTaskService } from '~/modules/document/services/document-index-task.service'
+import type { Chunk } from '~/modules/document/splitter/markdown-splitter.interface'
 import { splitMarkdownDocument } from '~/modules/document/splitter/markdown-splitter.pure'
 import { DocContentService } from '~/shared/mongo/services/doc-content.service'
+import { VectorService } from '~/shared/vector/vector.service'
+import type { DocVectorMessage } from '../messages/doc-vector.message'
 import { DOC_QUEUES } from '../mq.constants'
 import { RabbitMqService } from '../rabbitmq.service'
 
@@ -20,6 +19,7 @@ export class VectorConsumer implements OnModuleInit {
     @Inject(forwardRef(() => DocumentIndexTaskService))
     private readonly indexTaskService: DocumentIndexTaskService,
     private readonly docContentService: DocContentService,
+    private readonly vectorService: VectorService,
   ) {}
 
   async onModuleInit() {
@@ -63,6 +63,9 @@ export class VectorConsumer implements OnModuleInit {
         markdownText = data.chunks.map(c => c.content).join('\n\n')
       }
 
+      const scope = data.chunks?.[0]?.scope || 'PUBLIC'
+      const visibleDeptIds = data.chunks?.[0]?.visibleDeptIds || []
+
       // 3. 执行纯函数语义切块 (按标题切分、特殊块保护、短合并、超长二次切分、双向链表)
       let chunks: Chunk[] = []
       if (markdownText) {
@@ -71,8 +74,8 @@ export class VectorConsumer implements OnModuleInit {
           docCode: data.docCode,
           title: data.title,
           fileType: data.fileType,
-          scope: data.chunks?.[0]?.scope || 'PUBLIC',
-          visibleDeptIds: data.chunks?.[0]?.visibleDeptIds || [],
+          scope,
+          visibleDeptIds,
         })
       }
 
@@ -80,21 +83,31 @@ export class VectorConsumer implements OnModuleInit {
         `[VectorConsumer] ✂️ 语义切块完毕: docCode=${docCode}, 正文字数=${markdownText.length}, 产出切块数=${chunks.length}`,
       )
 
-      // 4. 状态流转 -> completed (持久化真实切块数与耗时)
-      const costMs = Date.now() - startTime
+      // 4. 调用解耦的向量领域门面服务 (批量计算 Embedding 并批量 Upsert 入库)
+      const { chunkCount, costMs: vectorCostMs } = await this.vectorService.indexDocumentChunks({
+        docCode: data.docCode,
+        docId: data.docId,
+        title: data.title,
+        scope,
+        visibleDeptIds,
+        chunks,
+      })
+
+      // 5. 状态流转 -> completed (持久化真实切块数与端到端耗时)
+      const totalCostMs = Date.now() - startTime
       await this.indexTaskService.markCompleted(
         docCode,
         DocIndexTypeEnum.VECTOR,
-        costMs,
-        chunks.length,
+        totalCostMs,
+        chunkCount,
       )
 
       this.logger.log(
-        `[VectorConsumer] ✅ 向量化通道处理完毕: docCode=${docCode}, 切块数=${chunks.length}, 耗时=${costMs}ms`,
+        `[VectorConsumer] ✅ 向量化通道处理完毕: docCode=${docCode}, 切块数=${chunkCount}, 向量耗时=${vectorCostMs}ms, 总耗时=${totalCostMs}ms (Provider=${this.vectorService.providerName}, Store=${this.vectorService.storeName})`,
       )
     }
     catch (err: any) {
-      // 5. 状态流转 -> failed
+      // 6. 状态流转 -> failed
       await this.indexTaskService.markFailed(
         docCode,
         DocIndexTypeEnum.VECTOR,

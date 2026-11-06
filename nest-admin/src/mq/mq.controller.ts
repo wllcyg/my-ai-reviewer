@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger'
 import { nanoid } from 'nanoid'
 import { Public } from '~/modules/auth/decorators/public.decorator'
 import { DocumentIndexTaskService } from '~/modules/document/services/document-index-task.service'
+import { VectorService } from '~/shared/vector/vector.service'
 import { DocumentPipelinePublisher } from './document-pipeline.publisher'
 import { DOC_QUEUES } from './mq.constants'
 import { RabbitMqService } from './rabbitmq.service'
@@ -32,7 +33,40 @@ export class MqController {
     private readonly publisher: DocumentPipelinePublisher,
     private readonly rabbitMqService: RabbitMqService,
     private readonly indexTaskService: DocumentIndexTaskService,
+    private readonly vectorService: VectorService,
   ) {}
+
+  @Get('search-vector')
+  @ApiOperation({ summary: '测试向量检索 (直接调用 Cloudflare 真实检索并返回召回数据)' })
+  async searchVectorTest(
+    @Query('q') queryText: string,
+    @Query('docCode') docCode?: string,
+  ) {
+    const q = queryText || '测试'
+    const results = await this.vectorService.search(
+      q,
+      { uid: 1, roles: ['admin'] } as any,
+      { topK: 5, docCode },
+    )
+
+    return {
+      query: q,
+      docCodeFilter: docCode || 'all',
+      count: results.length,
+      provider: this.vectorService.providerName,
+      store: this.vectorService.storeName,
+      matches: results.map(r => ({
+        id: r.id,
+        score: r.score,
+        docCode: r.payload.docCode,
+        title: r.payload.title,
+        chunkIndex: r.payload.chunkIndex,
+        content: r.payload.content,
+        headingPath: r.payload.headingPath,
+      })),
+      timestamp: new Date().toISOString(),
+    }
+  }
 
   @Post('publish')
   @ApiOperation({ summary: '发布测试文档处理任务' })
@@ -94,6 +128,17 @@ export class MqController {
       chunkCount: chunks.length,
       routingKey: 'doc.index.vector',
       message: success ? '✅ 任务已初始化入库，并已发布至 doc.index.vector 通道' : '❌ 发布失败',
+      timestamp: new Date().toISOString(),
+    }
+  }
+
+  @Get('latest-tasks')
+  @ApiOperation({ summary: '查看最新的任务执行流水记录' })
+  async getLatestTasks(@Query('limit') limit?: number) {
+    const tasks = await this.indexTaskService.getLatestTasks(Number(limit) || 20)
+    return {
+      count: tasks.length,
+      tasks,
       timestamp: new Date().toISOString(),
     }
   }

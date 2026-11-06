@@ -144,6 +144,16 @@ export class DocumentIndexTaskService {
   }
 
   /**
+   * 查询最近执行的索引任务记录 (倒序)
+   */
+  async getLatestTasks(limit = 20): Promise<DocumentIndexTaskEntity[]> {
+    return this.taskRepo.find({
+      order: { id: 'DESC' },
+      take: limit,
+    })
+  }
+
+  /**
    * 查询单篇文档的所有索引任务
    */
   async getTasksByDocCode(docCode: string): Promise<DocumentIndexTaskEntity[]> {
