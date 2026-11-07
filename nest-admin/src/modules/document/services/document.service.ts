@@ -9,8 +9,9 @@ import { InjectRepository } from '@nestjs/typeorm'
 import { EntityManager, QueryFailedError, Repository } from 'typeorm'
 
 import { DocContentService } from '~/shared/mongo/services/doc-content.service'
-
+import { OpenSearchService } from '~/shared/opensearch/opensearch.service'
 import { DocParserService } from '~/shared/parser/doc-parser.service'
+import { VectorService } from '~/shared/vector/vector.service'
 import { DocumentPipelinePublisher } from '~/mq/document-pipeline.publisher'
 import { generateUUID } from '~/utils'
 import { DocumentApprovalEntity } from '../document-approval.entity'
@@ -52,6 +53,8 @@ export class DocumentService {
     private readonly docContentService: DocContentService,
     private readonly docPublisher: DocumentPipelinePublisher,
     private readonly indexTaskService: DocumentIndexTaskService,
+    private readonly vectorService: VectorService,
+    private readonly openSearchService: OpenSearchService,
   ) {}
 
   /**
@@ -305,6 +308,55 @@ export class DocumentService {
     })
 
     this.logger.log(`文档 [${code}] 已被用户 [${user.uid}] 软删除 (保留 R2 与 MongoDB 数据)`)
+
+    // 联动并发清理双路检索切块 (Vectorize 向量点与 OpenSearch 倒排分块)，彻底从 RAG 检索池移除
+    try {
+      await Promise.allSettled([
+        this.vectorService.deleteDocumentVectors(code),
+        this.openSearchService.deleteDocumentChunks(code),
+      ])
+      this.logger.log(`[DocumentService] 已联动清理文档 [${code}] 的向量与全文检索切块`)
+    }
+    catch (err: any) {
+      this.logger.warn(`[DocumentService] 联动清理检索切块失败 (不影响软删除主流程): ${err.message}`)
+    }
+  }
+
+  /**
+   * 根据业务编码归档/下线文档（置为 ARCHIVED 状态，同时彻底从 RAG 检索池下架切块）
+   */
+  async archiveByCode(code: string, user: IAuthUser): Promise<DocumentEntity> {
+    const document = await this.docRepo.manager.transaction(async (manager) => {
+      const doc = await lockDocumentByCode(manager, code)
+
+      if (
+        !this.permission.isAdmin(user)
+        && !this.permission.isOwner(doc, user)
+      ) {
+        throw new ForbiddenException('您无权下线他人创建的文档')
+      }
+
+      if (doc.status === DocumentStatusEnum.ARCHIVED) {
+        return doc
+      }
+
+      doc.status = DocumentStatusEnum.ARCHIVED
+      return manager.save(DocumentEntity, doc)
+    })
+
+    // 联动并发清理双路切块，确保 RAG 不再召回
+    try {
+      await Promise.allSettled([
+        this.vectorService.deleteDocumentVectors(code),
+        this.openSearchService.deleteDocumentChunks(code),
+      ])
+      this.logger.log(`[DocumentService] 文档 [${code}] 已归档下线，并已清理检索池切块`)
+    }
+    catch (err: any) {
+      this.logger.warn(`[DocumentService] 归档清理检索切块失败: ${err.message}`)
+    }
+
+    return document
   }
 
   /**
@@ -361,14 +413,23 @@ export class DocumentService {
     // 3. 重置初始化衍生索引任务表 (VECTOR, ES, GRAPH)
     await this.indexTaskService.initTasks(savedDoc.docCode, chunks.length)
 
-    // 4. 派发消息至 RabbitMQ 向量通道
-    await this.docPublisher.sendVectorIndexTask({
-      docCode: savedDoc.docCode,
-      docId: savedDoc.id,
-      title: savedDoc.title,
-      fileType: savedDoc.fileType,
-      chunks,
-    })
+    // 4. 派发消息至 RabbitMQ 向量通道与 ES 全文通道
+    await Promise.all([
+      this.docPublisher.sendVectorIndexTask({
+        docCode: savedDoc.docCode,
+        docId: savedDoc.id,
+        title: savedDoc.title,
+        fileType: savedDoc.fileType,
+        chunks,
+      }),
+      this.docPublisher.sendEsIndexTask({
+        docCode: savedDoc.docCode,
+        docId: savedDoc.id,
+        title: savedDoc.title,
+        fileType: savedDoc.fileType,
+        chunks,
+      }),
+    ])
 
     this.logger.log(`[DocumentService] 已成功向消息总线派发重新向量化任务: ${code}`)
     return savedDoc

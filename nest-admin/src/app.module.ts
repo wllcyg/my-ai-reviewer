@@ -29,6 +29,7 @@ import { DocumentModule } from './modules/document/document.module'
 import { MqModule } from './mq/mq.module'
 import { DatabaseModule } from './shared/database/database.module'
 import { MongoModule } from './shared/mongo/mongo.module'
+import { OpenSearchModule } from './shared/opensearch/opensearch.module'
 import { ParserModule } from './shared/parser/parser.module'
 import { VectorModule } from './shared/vector/vector.module'
 
@@ -63,6 +64,7 @@ import { SocketModule } from './socket/socket.module'
     MongoModule,
     ParserModule,
     VectorModule,
+    OpenSearchModule,
     MqModule,
 
     AuthModule,

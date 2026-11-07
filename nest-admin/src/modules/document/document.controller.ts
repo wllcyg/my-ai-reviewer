@@ -159,12 +159,23 @@ export class DocumentController {
   }
 
   @Delete(':code')
-  @ApiOperation({ summary: '根据业务编码软删除文档（保留 R2 与 Markdown 存储）' })
+  @ApiOperation({ summary: '根据业务编码软删除文档（保留 R2 与 Markdown 存储，清理 RAG 切块索引）' })
   async delete(
     @Param('code') code: string,
     @AuthUser() user: IAuthUser,
   ): Promise<void> {
     await this.documentService.deleteByCode(code, user)
+  }
+
+  @Post(':code/archive')
+  @ApiOperation({ summary: '根据业务编码归档下线文档（置为 ARCHIVED 状态并彻底从 RAG 检索池下架切块）' })
+  @ApiOkResponse({ type: DocumentEntity })
+  @ApiResult({ type: DocumentEntity })
+  async archive(
+    @Param('code') code: string,
+    @AuthUser() user: IAuthUser,
+  ): Promise<DocumentEntity> {
+    return this.documentService.archiveByCode(code, user)
   }
 
   @Post(':code/re-vector')

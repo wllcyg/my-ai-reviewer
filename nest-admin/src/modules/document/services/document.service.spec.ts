@@ -1,3 +1,7 @@
+jest.mock('amqp-connection-manager', () => ({}))
+jest.mock('~/mq/document-pipeline.publisher')
+jest.mock('~/mq/rabbitmq.service')
+
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { EntityManager, QueryFailedError, Repository, SelectQueryBuilder } from 'typeorm'
 
@@ -10,6 +14,9 @@ import { R2StorageService } from '../r2-storage.service'
 import { DocumentApprovalService } from './document-approval.service'
 import { DocumentPermissionService } from './document-permission.service'
 import { DocumentService } from './document.service'
+
+jest.mock('~/mq/document-pipeline.publisher')
+jest.mock('~/mq/rabbitmq.service')
 
 jest.mock('@nestjs/mongoose', () => ({
   InjectModel: () => () => {},
@@ -47,6 +54,9 @@ describe('documentService', () => {
     username: 'admin',
     roles: ['admin'],
   } as any
+
+  let mockVectorService: any
+  let mockOpenSearchService: any
 
   beforeEach(() => {
     mockManager = {
@@ -99,6 +109,7 @@ describe('documentService', () => {
 
     const mockDocPublisher = {
       sendVectorIndexTask: jest.fn().mockResolvedValue(undefined),
+      sendEsIndexTask: jest.fn().mockResolvedValue(undefined),
     }
 
     const mockIndexTaskService = {
@@ -106,6 +117,14 @@ describe('documentService', () => {
       markProcessing: jest.fn().mockResolvedValue(undefined),
       markCompleted: jest.fn().mockResolvedValue(undefined),
       markFailed: jest.fn().mockResolvedValue(undefined),
+    }
+
+    mockVectorService = {
+      deleteDocumentVectors: jest.fn().mockResolvedValue(undefined),
+    }
+
+    mockOpenSearchService = {
+      deleteDocumentChunks: jest.fn().mockResolvedValue(undefined),
     }
 
     service = new DocumentService(
@@ -117,6 +136,8 @@ describe('documentService', () => {
       mockDocContentService as DocContentService,
       mockDocPublisher as any,
       mockIndexTaskService as any,
+      mockVectorService as any,
+      mockOpenSearchService as any,
     )
   })
 
@@ -244,6 +265,29 @@ describe('documentService', () => {
       expect(mockManager.softDelete).toHaveBeenCalledWith(DocumentEntity, { docCode: 'doc_del_02' })
       expect(mockR2StorageService.deleteFile).not.toHaveBeenCalled()
       expect(mockDocContentService.deleteByCode).not.toHaveBeenCalled()
+      expect(mockVectorService.deleteDocumentVectors).toHaveBeenCalledWith('doc_del_02')
+      expect(mockOpenSearchService.deleteDocumentChunks).toHaveBeenCalledWith('doc_del_02')
+    })
+  })
+
+  describe('archiveByCode', () => {
+    it('归档下线文档并将状态置为 ARCHIVED 且清理双路检索切块', async () => {
+      const myDoc = {
+        id: 2,
+        docCode: 'doc_arc_01',
+        title: '归档测试',
+        status: DocumentStatusEnum.PUBLISHED,
+        createBy: normalUser.uid,
+      } as DocumentEntity
+
+      ;(mockManager.findOne as jest.Mock).mockResolvedValue(myDoc)
+      ;(mockManager.save as jest.Mock).mockImplementation((_entity, val) => Promise.resolve(val))
+
+      const archived = await service.archiveByCode('doc_arc_01', normalUser)
+
+      expect(archived.status).toBe(DocumentStatusEnum.ARCHIVED)
+      expect(mockVectorService.deleteDocumentVectors).toHaveBeenCalledWith('doc_arc_01')
+      expect(mockOpenSearchService.deleteDocumentChunks).toHaveBeenCalledWith('doc_arc_01')
     })
   })
 

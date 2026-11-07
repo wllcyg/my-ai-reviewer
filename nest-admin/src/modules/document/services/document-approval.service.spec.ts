@@ -1,3 +1,7 @@
+jest.mock('amqp-connection-manager', () => ({}))
+jest.mock('~/mq/document-pipeline.publisher')
+jest.mock('~/mq/rabbitmq.service')
+
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { EntityManager, Repository } from 'typeorm'
 
@@ -12,6 +16,9 @@ import { DocumentEntity } from '../document.entity'
 import { AuditActionEnum } from '../dto/audit-document.dto'
 import { DocumentApprovalService } from './document-approval.service'
 import { DocumentPermissionService } from './document-permission.service'
+
+jest.mock('~/mq/document-pipeline.publisher')
+jest.mock('~/mq/rabbitmq.service')
 
 describe('documentApprovalService', () => {
   let service: DocumentApprovalService
@@ -68,6 +75,7 @@ describe('documentApprovalService', () => {
     const mockDocPublisher = {
       sendDocProcessTask: jest.fn().mockResolvedValue(true),
       sendVectorIndexTask: jest.fn().mockResolvedValue(true),
+      sendEsIndexTask: jest.fn().mockResolvedValue(true),
     } as any
 
     const mockIndexTaskService = {

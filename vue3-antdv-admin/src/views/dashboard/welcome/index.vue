@@ -200,6 +200,14 @@
       website: 'https://www.cloudamqp.com/',
     },
     {
+      name: 'Bonsai OpenSearch',
+      category: '全文检索引擎 (ES/OS)',
+      categoryColor: 'cyan',
+      description: '全托管高性能 OpenSearch 集群，采用 smartcn 工业级中文分词与 BM25 倒排索引，支撑 RAG 混合检索精准关键词召回。',
+      tags: ['OpenSearch 3.9', 'smartcn 分词', 'BM25 倒排索引'],
+      website: 'https://bonsai.io/',
+    },
+    {
       name: 'MongoDB Atlas',
       category: '文档大文本库 (NoSQL)',
       categoryColor: 'green',

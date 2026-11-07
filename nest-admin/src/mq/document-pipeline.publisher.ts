@@ -119,4 +119,47 @@ export class DocumentPipelinePublisher {
 
     return success
   }
+
+  /**
+   * 投递全文倒排索引专用任务 (阶段二: doc.index.es)
+   * @param params 切块数据载荷
+   */
+  async sendEsIndexTask(params: SendDocVectorTaskParams): Promise<boolean> {
+    const taskId = params.taskId || `task_es_${nanoid(10)}`
+    const traceId = params.traceId || `tr_${nanoid(12)}`
+
+    const message: DocVectorMessage = {
+      schemaVersion: 1,
+      taskId,
+      traceId,
+      docCode: params.docCode,
+      docId: params.docId,
+      title: params.title,
+      fileType: params.fileType,
+      chunks: params.chunks,
+      attempt: params.attempt || 1,
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+    }
+
+    const routingKey = DOC_ROUTING_KEYS.ES
+    const success = await this.rabbitMqService.publish(
+      DOC_EXCHANGE,
+      routingKey,
+      message,
+    )
+
+    if (success) {
+      this.logger.log(
+        `[MQ ES 通道投递成功] docCode=${message.docCode}, chunks=${message.chunks.length}, taskId=${taskId}`,
+      )
+    }
+    else {
+      this.logger.error(
+        `[MQ ES 通道投递失败] docCode=${message.docCode}, taskId=${taskId}`,
+      )
+    }
+
+    return success
+  }
 }

@@ -3,6 +3,7 @@ import { ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger'
 import { nanoid } from 'nanoid'
 import { Public } from '~/modules/auth/decorators/public.decorator'
 import { DocumentIndexTaskService } from '~/modules/document/services/document-index-task.service'
+import { OpenSearchService } from '~/shared/opensearch/opensearch.service'
 import { VectorService } from '~/shared/vector/vector.service'
 import { DocumentPipelinePublisher } from './document-pipeline.publisher'
 import { DOC_QUEUES } from './mq.constants'
@@ -34,7 +35,75 @@ export class MqController {
     private readonly rabbitMqService: RabbitMqService,
     private readonly indexTaskService: DocumentIndexTaskService,
     private readonly vectorService: VectorService,
+    private readonly openSearchService: OpenSearchService,
   ) {}
+
+  @Get('search-es')
+  @ApiOperation({ summary: '测试 OpenSearch 全文检索 (调用 Bonsai 真实检索并返回命中分块与高亮)' })
+  async searchEsTest(
+    @Query('q') queryText: string,
+    @Query('docCode') docCode?: string,
+  ) {
+    const q = queryText || '测试'
+    const results = await this.openSearchService.search({
+      query: q,
+      limit: 5,
+      docCode,
+      aclTags: ['public'],
+    })
+
+    return {
+      query: q,
+      docCodeFilter: docCode || 'all',
+      count: results.length,
+      store: this.openSearchService.storeName,
+      matches: results,
+      timestamp: new Date().toISOString(),
+    }
+  }
+
+  @Post('publish-pipeline')
+  @ApiOperation({ summary: '同时向向量通道和 ES 全文通道投递切块处理任务' })
+  async publishPipelineTest(@Body() body: { docCode?: string, title?: string, chunkCount?: number }) {
+    const docCode = body.docCode || `doc_pipe_${nanoid(6)}`
+    const count = body.chunkCount || 3
+    const chunks = Array.from({ length: count }, (_, i) => ({
+      chunkIndex: i,
+      content: `这是文档《${body.title || '双路流水线测试文档'}》的第 ${i + 1} 块内容，支持关键词检索与向量语义检索双路索引。`,
+      headingPath: `第一章 测试概要 > 第 ${i + 1} 节 实施方案`,
+      scope: 'PUBLIC',
+    }))
+
+    // 1. 初始化三路任务
+    await this.indexTaskService.initTasks(docCode, chunks.length)
+
+    // 2. 双路并发投递
+    const [vecSuccess, esSuccess] = await Promise.all([
+      this.publisher.sendVectorIndexTask({
+        docCode,
+        docId: 8888,
+        title: body.title || '双路流水线测试文档',
+        fileType: 'md',
+        chunks,
+      }),
+      this.publisher.sendEsIndexTask({
+        docCode,
+        docId: 8888,
+        title: body.title || '双路流水线测试文档',
+        fileType: 'md',
+        chunks,
+      }),
+    ])
+
+    return {
+      docCode,
+      chunkCount: chunks.length,
+      vecSuccess,
+      esSuccess,
+      message: '✅ 已同时向 Vector 和 ES 队列投递任务',
+      timestamp: new Date().toISOString(),
+    }
+  }
 
   @Get('search-vector')
   @ApiOperation({ summary: '测试向量检索 (直接调用 Cloudflare 真实检索并返回召回数据)' })

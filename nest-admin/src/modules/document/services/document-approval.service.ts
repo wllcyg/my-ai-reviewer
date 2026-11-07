@@ -222,14 +222,23 @@ export class DocumentApprovalService {
         ]
         await this.indexTaskService.initTasks(savedDoc.docCode, initialChunks.length)
 
-        // 2. 投递向量专用通道
-        await this.docPublisher.sendVectorIndexTask({
-          docCode: savedDoc.docCode,
-          docId: savedDoc.id,
-          title: savedDoc.title,
-          fileType: savedDoc.fileType,
-          chunks: initialChunks,
-        })
+        // 2. 投递向量通道与 ES 全文通道
+        await Promise.all([
+          this.docPublisher.sendVectorIndexTask({
+            docCode: savedDoc.docCode,
+            docId: savedDoc.id,
+            title: savedDoc.title,
+            fileType: savedDoc.fileType,
+            chunks: initialChunks,
+          }),
+          this.docPublisher.sendEsIndexTask({
+            docCode: savedDoc.docCode,
+            docId: savedDoc.id,
+            title: savedDoc.title,
+            fileType: savedDoc.fileType,
+            chunks: initialChunks,
+          }),
+        ])
       }
 
       runPipeline().catch((err) => {
