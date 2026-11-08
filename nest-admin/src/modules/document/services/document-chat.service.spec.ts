@@ -1,7 +1,35 @@
+import { PassThrough } from 'node:stream'
 import { Test, TestingModule } from '@nestjs/testing'
 import { VectorConfig } from '~/config/vector.config'
 import { DocumentChatService } from './document-chat.service'
 import { HybridSearchService } from './hybrid-search.service'
+
+jest.mock('ai', () => ({
+  createUIMessageStream: jest.fn(({ execute, onFinish }) => {
+    return { execute, onFinish }
+  }),
+  pipeUIMessageStreamToResponse: jest.fn(async ({ response, stream }) => {
+    const mockWriter = {
+      write: jest.fn((chunk) => {
+        response.write(JSON.stringify(chunk) + '\n')
+      }),
+      merge: jest.fn(),
+    }
+    if (stream && stream.execute) {
+      await stream.execute({ writer: mockWriter })
+    }
+    if (stream && stream.onFinish) {
+      await stream.onFinish({
+        responseMessage: { parts: [{ type: 'text', text: '完成回答' }] },
+      })
+    }
+    response.end?.()
+  }),
+}))
+
+jest.mock('@ai-sdk/langchain', () => ({
+  toUIMessageStream: jest.fn(() => ({})),
+}))
 
 describe('DocumentChatService', () => {
   let service: DocumentChatService
@@ -14,6 +42,7 @@ describe('DocumentChatService', () => {
   } as any
 
   beforeEach(async () => {
+    delete process.env.DEEPSEEK_API_KEY
     mockHybridSearchService = {
       search: jest.fn().mockResolvedValue({
         items: [],
@@ -36,6 +65,8 @@ describe('DocumentChatService', () => {
             accountId: '',
             apiToken: '',
             chatModel: '@cf/meta/llama-3.1-8b-instruct',
+            chatApiKey: '',
+            chatBaseUrl: '',
           },
         },
       ],
@@ -103,5 +134,26 @@ describe('DocumentChatService', () => {
     const toolResult = await tool.invoke({ query: '住宿限额' })
     expect(toolResult).toContain('doc_tool_test')
   })
+
+  it('streamChat 流式问答应正确写入 UI Stream 事件帧', async () => {
+    mockHybridSearchService.search = jest.fn().mockResolvedValue({
+      items: [],
+      total: 0,
+      costMs: 5,
+      query: '测试流式问题',
+    })
+
+    const chunks: string[] = []
+    const mockRes: any = new PassThrough()
+    mockRes.writeHead = jest.fn()
+    mockRes.flushHeaders = jest.fn()
+    mockRes.on('data', (d: Buffer) => chunks.push(d.toString()))
+
+    await service.streamChat({ query: '测试流式问题' }, mockUser, mockRes)
+    const output = chunks.join('')
+    expect(output).toContain('start')
+    expect(output).toContain('retrieve')
+  })
 })
+
 

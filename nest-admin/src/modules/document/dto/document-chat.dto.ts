@@ -1,3 +1,4 @@
+import type { UIMessage } from 'ai'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import {
@@ -85,4 +86,26 @@ export class DocumentChatResponseDto {
   @ApiProperty({ description: '端到端总耗时 (ms)' })
   costMs: number
 }
+
+/**
+ * Vercel AI SDK UI Message 流式消息协议类型契约
+ */
+export type DocChatUIMessage = UIMessage<
+  unknown,
+  {
+    status: { stage: string; text: string }
+    think: { text: string }
+    sources: CitationItemDto[]
+    retrieve: {
+      query: string
+      items: Array<{
+        index: number
+        docCode: string
+        title: string
+        headingPath?: string
+      }>
+    }
+  }
+>
+
 

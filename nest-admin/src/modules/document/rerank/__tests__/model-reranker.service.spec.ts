@@ -51,6 +51,8 @@ describe('ModelRerankerService', () => {
         rerankModel: '',
         rerankBaseUrl: '',
         rerankProvider: 'local',
+        chatApiKey: '',
+        chatBaseUrl: '',
         chatModel: '',
       },
       fallbackReranker,
@@ -90,6 +92,8 @@ describe('ModelRerankerService', () => {
         rerankModel: '@cf/baai/bge-reranker-base',
         rerankBaseUrl: '',
         rerankProvider: 'model',
+        chatApiKey: '',
+        chatBaseUrl: '',
         chatModel: '',
       },
       fallbackReranker,
@@ -124,6 +128,8 @@ describe('ModelRerankerService', () => {
         rerankModel: '@cf/baai/bge-reranker-base',
         rerankBaseUrl: '',
         rerankProvider: 'model',
+        chatApiKey: '',
+        chatBaseUrl: '',
         chatModel: '',
       },
       fallbackReranker,
@@ -135,6 +141,53 @@ describe('ModelRerankerService', () => {
     expect(result.length).toBe(2)
     expect(result[0].chunkId).toBe('doc1_1')
     expect(result[0].finalScore).toBeGreaterThan(0)
+  })
+
+  it('阿里百炼 DashScope (qwen3.7-text-rerank) 重排成功时应正确解析 output.results', async () => {
+    const mockPost = jest.fn().mockResolvedValue({
+      data: {
+        output: {
+          results: [
+            { index: 0, relevance_score: 0.15 },
+            { index: 1, relevance_score: 0.98 },
+          ],
+        },
+        usage: { total_tokens: 60 },
+      },
+    })
+    mockedAxios.create.mockReturnValue({
+      post: mockPost,
+    } as any)
+
+    const service = new ModelRerankerService(
+      {
+        accountId: '',
+        apiToken: 'test_token',
+        baseUrl: '',
+        embeddingModel: '',
+        embeddingDimension: 1024,
+        vectorizeIndex: '',
+        embeddingProvider: 'mock',
+        vectorStoreProvider: 'memory',
+        rerankApiKey: 'sk-dashscope-test',
+        rerankModel: 'qwen3.7-text-rerank',
+        rerankBaseUrl: 'https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank',
+        rerankProvider: 'model',
+        chatApiKey: '',
+        chatBaseUrl: '',
+        chatModel: '',
+      },
+      fallbackReranker,
+    )
+
+    const result = await service.rerank('房费 500元', candidates)
+
+    expect(mockPost).toHaveBeenCalledTimes(1)
+    expect(mockPost.mock.calls[0][1]).toHaveProperty('input')
+    expect(mockPost.mock.calls[0][1]).toHaveProperty('parameters')
+    expect(result.length).toBe(2)
+    expect(result[0].chunkId).toBe('doc1_1')
+    expect(result[0].rerankScore).toBe(0.98)
   })
 })
 

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { In, IsNull, Repository } from 'typeorm'
+import { traceable } from 'langsmith/traceable'
 
 import { OpenSearchService } from '~/shared/opensearch/opensearch.service'
 import { VectorService } from '~/shared/vector/vector.service'
@@ -58,18 +59,30 @@ export class HybridSearchService {
     const aclTags = isAdmin ? undefined : this.vectorService.buildUserAclTags(user)
 
     // 2. 并行双路召回 (Promise.allSettled 具备强容错能力)
-    const [vectorSettled, esSettled] = await Promise.allSettled([
-      this.vectorService.search(query, user, {
+    const tRetrievalStart = Date.now()
+    const searchVector = traceable(
+      async () => this.vectorService.search(query, user, {
         topK: topKPerRoute,
         docCode: dto.docCode,
       }),
-      this.openSearchService.search({
+      { name: 'cloudflare_vector_search', run_type: 'retriever' },
+    )
+
+    const searchOpenSearch = traceable(
+      async () => this.openSearchService.search({
         query,
         limit: topKPerRoute,
         aclTags,
         docCode: dto.docCode,
       }),
+      { name: 'bonsai_opensearch_bm25', run_type: 'retriever' },
+    )
+
+    const [vectorSettled, esSettled] = await Promise.allSettled([
+      searchVector(),
+      searchOpenSearch(),
     ])
+    const retrievalCostMs = Date.now() - tRetrievalStart
 
     const vectorHits = vectorSettled.status === 'fulfilled' ? vectorSettled.value : []
     const esHits = esSettled.status === 'fulfilled' ? esSettled.value : []
@@ -82,7 +95,7 @@ export class HybridSearchService {
     }
 
     this.logger.debug(
-      `[HybridSearch] 召回结果统计: query="${query}", 向量召回=${vectorHits.length}条, ES召回=${esHits.length}条`,
+      `[HybridSearch] 召回结果统计: query="${query}", 耗时=${retrievalCostMs}ms, 向量召回=${vectorHits.length}条, ES召回=${esHits.length}条`,
     )
 
     // 3. 构建候选切块 Map 并应用 RRF 融合打分
@@ -161,9 +174,14 @@ export class HybridSearchService {
     }
 
     // 4. 执行二次精排 (Rerank)
+    const tRerankStart = Date.now()
     let rankedChunks: RerankedChunk[]
     if (enableRerank) {
-      rankedChunks = await this.reranker.rerank(query, initialCandidates)
+      const runReranker = traceable(
+        async () => this.reranker.rerank(query, initialCandidates),
+        { name: 'dashscope_qwen_rerank', run_type: 'tool' },
+      )
+      rankedChunks = await runReranker()
     }
     else {
       rankedChunks = initialCandidates
@@ -174,6 +192,11 @@ export class HybridSearchService {
           finalScore: Number(Math.min(c.rrfScore * 30, 1.0).toFixed(4)),
         }))
     }
+    const rerankCostMs = Date.now() - tRerankStart
+
+    this.logger.log(
+      `[HybridSearch] 耗时监控: 双路召回(并行)=${retrievalCostMs}ms (向量=${vectorHits.length}条, ES=${esHits.length}条) | 阿里重排=${rerankCostMs}ms | 检索总计=${Date.now() - startTime}ms`,
+    )
 
     // 5. 将切片按文档维度归集
     const docChunksMap = new Map<string, RerankedChunk[]>()

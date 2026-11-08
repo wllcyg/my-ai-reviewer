@@ -112,15 +112,47 @@
                 <div class="msg-bubble">
                   <!-- 用户消息直接纯文本 -->
                   <div v-if="msg.role === 'user'" class="user-text">{{ msg.content }}</div>
+
+                  <!-- 深度思考过程折叠块 -->
+                  <div
+                    v-if="msg.role === 'assistant' && msg.reasoningText"
+                    class="reasoning-block"
+                  >
+                    <div
+                      class="reasoning-header"
+                      @click="msg.reasoningExpanded = !msg.reasoningExpanded"
+                    >
+                      <span class="reasoning-title">
+                        🧠 思考推理过程 {{ msg.isStreaming && !msg.content ? '(思考中...)' : '' }}
+                      </span>
+                      <DownOutlined
+                        class="collapse-arrow"
+                        :class="{ 'arrow-rotated': msg.reasoningExpanded }"
+                      />
+                    </div>
+                    <div v-show="msg.reasoningExpanded" class="reasoning-content">
+                      {{ msg.reasoningText }}
+                    </div>
+                  </div>
+
+                  <!-- 阶段状态指示（仅当正文尚未输出且正在流式处理时展示） -->
+                  <div
+                    v-if="msg.role === 'assistant' && !msg.content && msg.isStreaming"
+                    class="stage-loading"
+                  >
+                    <div class="dot-flashing"></div>
+                    <span class="stage-text">{{ currentStageText }}</span>
+                  </div>
+
                   <!-- AI 消息支持 Markdown 渲染 -->
                   <div
-                    v-else
+                    v-if="msg.role === 'assistant' && msg.content"
                     class="assistant-markdown markdown-body"
                     v-html="renderMarkdown(msg.content)"
                   ></div>
 
-                  <!-- 流式打字中光标 -->
-                  <span v-if="msg.isStreaming" class="typing-cursor"></span>
+                  <!-- 流式打字中光标（仅当已有正文且正在流式输出时展示） -->
+                  <span v-if="msg.isStreaming && msg.content" class="typing-cursor"></span>
                 </div>
 
                 <!-- 知识溯源卡片 (仅 AI 消息展示) -->
@@ -162,19 +194,6 @@
 
                 <!-- 消息时间 -->
                 <div class="msg-time">{{ msg.time }}</div>
-              </div>
-            </div>
-
-            <!-- 加载骨架/思考状态 -->
-            <div v-if="isLoading && !isStreaming" class="message-item msg-assistant loading-item">
-              <div class="msg-avatar">
-                <RobotOutlined />
-              </div>
-              <div class="msg-content-wrapper">
-                <div class="thinking-bubble">
-                  <div class="dot-flashing"></div>
-                  <span class="thinking-text">正在混合检索知识库并推理中...</span>
-                </div>
               </div>
             </div>
           </div>
@@ -228,7 +247,7 @@
     FileTextOutlined,
     DownOutlined,
   } from '@ant-design/icons-vue';
-  import { documentChat } from '@/api/backend/api/document';
+  import { documentChatStream } from '@/api/backend/api/document';
 
   defineOptions({
     name: 'AiChatWidget',
@@ -251,6 +270,8 @@
     isStreaming?: boolean;
     citations?: CitationItem[];
     citationsExpanded?: boolean;
+    reasoningText?: string;
+    reasoningExpanded?: boolean;
   }
 
   // 状态定义
@@ -261,6 +282,8 @@
   const inputQuery = ref<string>('');
   const isLoading = ref<boolean>(false);
   const isStreaming = ref<boolean>(false);
+  const currentStageText = ref<string>('正在多路召回知识库并执行语义重排…');
+  let currentAbortController: AbortController | null = null;
   const messagesContainerRef = ref<HTMLDivElement | null>(null);
 
   // 猜你想问推荐列表
@@ -297,6 +320,12 @@
   };
 
   const closePanel = () => {
+    if (currentAbortController) {
+      currentAbortController.abort();
+      currentAbortController = null;
+    }
+    isLoading.value = false;
+    isStreaming.value = false;
     visible.value = false;
     isFullscreen.value = false;
     isMinimized.value = false;
@@ -312,6 +341,12 @@
   };
 
   const handleClearMessages = () => {
+    if (currentAbortController) {
+      currentAbortController.abort();
+      currentAbortController = null;
+    }
+    isLoading.value = false;
+    isStreaming.value = false;
     messages.value = [];
   };
 
@@ -404,10 +439,10 @@
     };
   };
 
-  // 发送消息处理
+  // 发送消息处理 (真流式 UI Message Stream)
   const handleSend = async () => {
     const text = inputQuery.value.trim();
-    if (!text || isLoading.value) return;
+    if (!text || isLoading.value || isStreaming.value) return;
 
     // 1. 推入用户消息
     messages.value.push({
@@ -418,9 +453,11 @@
 
     inputQuery.value = '';
     isLoading.value = true;
+    isStreaming.value = false;
+    currentStageText.value = '正在多路召回知识库并执行语义重排…';
     scrollToBottom();
 
-    // 2. 准备 AI 消息占位符 (使用 reactive 确保 Vue 响应式精准追踪)
+    // 2. 准备 AI 消息占位符并推入会话列表 (单头像生命周期闭环)
     const assistantMsg = reactive<ChatMessage>({
       role: 'assistant',
       content: '',
@@ -428,76 +465,80 @@
       isStreaming: true,
       citations: [],
       citationsExpanded: false,
+      reasoningText: '',
+      reasoningExpanded: true,
     });
+    messages.value.push(assistantMsg);
+
+    // 提取多轮对话历史 (最近 4 条)
+    const history = messages.value.slice(-6, -2).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    if (currentAbortController) {
+      currentAbortController.abort();
+    }
+    currentAbortController = new AbortController();
 
     try {
-      // 提取多轮对话历史 (最近 4 条)
-      const history = messages.value.slice(-5, -1).map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      let fullText = '';
-      let citations: CitationItem[] = [];
-
-      try {
-        // 优先请求真实后端 RAG 混合检索与大模型问答接口
-        const res = await documentChat({
+      await documentChatStream(
+        {
           query: text,
           history,
-        }, { isReturnResult: true });
-
-        fullText = res?.answer || '';
-        citations = res?.citations || [];
-      } catch (apiError) {
-        console.warn('[AiChat] 接口调用异常，自动启用本地智能离线回答:', apiError);
-        const fallback = await generateMockAnswer(text);
-        fullText = fallback.text;
-        citations = fallback.citations;
-      }
-
-      // 如果未返回内容，执行兜底生成
-      if (!fullText) {
-        const fallback = await generateMockAnswer(text);
-        fullText = fallback.text;
-        if (!citations.length) {
-          citations = fallback.citations;
-        }
-      }
-
-      isLoading.value = false;
-      isStreaming.value = true;
-      assistantMsg.citations = citations;
-      messages.value.push(assistantMsg);
-      await nextTick();
-      scrollToBottom();
-
-      // 打字机流式字符推送呈现
-      let currentIdx = 0;
-      const chunkSize = 4;
-      const streamInterval = setInterval(() => {
-        if (currentIdx < fullText.length) {
-          const nextIdx = Math.min(currentIdx + chunkSize, fullText.length);
-          assistantMsg.content = fullText.slice(0, nextIdx);
-          currentIdx = nextIdx;
-          scrollToBottom();
-        } else {
-          clearInterval(streamInterval);
-          assistantMsg.content = fullText;
-          assistantMsg.isStreaming = false;
-          isStreaming.value = false;
-          scrollToBottom();
-        }
-      }, 20);
-    } catch (err) {
+        },
+        {
+          onStatus: (status) => {
+            currentStageText.value = status.text;
+          },
+          onSources: (sources) => {
+            assistantMsg.citations = sources;
+            scrollToBottom();
+          },
+          onTextDelta: (delta) => {
+            isLoading.value = false;
+            isStreaming.value = true;
+            assistantMsg.content += delta;
+            scrollToBottom();
+          },
+          onReasoningDelta: (reasoning) => {
+            isLoading.value = false;
+            isStreaming.value = true;
+            assistantMsg.reasoningText = (assistantMsg.reasoningText || '') + reasoning;
+            scrollToBottom();
+          },
+          onFinish: () => {
+            isLoading.value = false;
+            isStreaming.value = false;
+            assistantMsg.isStreaming = false;
+            scrollToBottom();
+          },
+          onError: async (apiError) => {
+            console.warn('[AiChat] 流式接口异常，自动启用本地智能离线回答:', apiError);
+            if (!assistantMsg.content) {
+              const fallback = await generateMockAnswer(text);
+              assistantMsg.content = fallback.text;
+              assistantMsg.citations = fallback.citations;
+            }
+            isLoading.value = false;
+            isStreaming.value = false;
+            assistantMsg.isStreaming = false;
+            scrollToBottom();
+          },
+        },
+        currentAbortController.signal,
+      );
+    } catch (err: any) {
+      if (currentAbortController?.signal?.aborted) return;
       console.error('[AiChat] 异常:', err);
+      if (!assistantMsg.content) {
+        const fallback = await generateMockAnswer(text);
+        assistantMsg.content = fallback.text;
+        assistantMsg.citations = fallback.citations;
+      }
       isLoading.value = false;
       isStreaming.value = false;
-      assistantMsg.content = '抱歉，检索知识库或连接模型出现异常，请稍后重试。';
       assistantMsg.isStreaming = false;
-      if (!messages.value.includes(assistantMsg)) {
-        messages.value.push(assistantMsg);
-      }
       scrollToBottom();
     }
   };
@@ -893,6 +934,64 @@
               border: 1px solid #edf2f7;
               border-bottom-left-radius: 2px;
               box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+
+              .reasoning-block {
+                margin-bottom: 8px;
+                padding: 6px 10px;
+                background: #f8fafc;
+                border: 1px dashed #cbd5e1;
+                border-radius: 8px;
+                font-size: 12px;
+
+                .reasoning-header {
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 8px;
+                  cursor: pointer;
+                  color: #64748b;
+                  font-weight: 500;
+                  user-select: none;
+
+                  .collapse-arrow {
+                    font-size: 10px;
+                    transition: transform 0.2s ease;
+                    &.arrow-rotated {
+                      transform: rotate(180deg);
+                    }
+                  }
+                }
+
+                .reasoning-content {
+                  margin-top: 6px;
+                  color: #475569;
+                  white-space: pre-wrap;
+                  line-height: 1.5;
+                  font-size: 11px;
+                }
+              }
+
+              .stage-loading {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 4px 2px;
+                font-size: 12px;
+                color: #64748b;
+
+                .dot-flashing {
+                  width: 6px;
+                  height: 6px;
+                  border-radius: 50%;
+                  background-color: #1677ff;
+                  animation: dot-pulse 1.2s infinite ease-in-out;
+                  flex-shrink: 0;
+                }
+
+                .stage-text {
+                  line-height: 1.4;
+                }
+              }
             }
           }
         }

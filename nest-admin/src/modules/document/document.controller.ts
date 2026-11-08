@@ -7,10 +7,13 @@ import {
   Post,
   Put,
   Query,
+  Res,
 } from '@nestjs/common'
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger'
+import type { FastifyReply } from 'fastify'
 
 import { ApiResult } from '~/common/decorators/api-result.decorator'
+import { Bypass } from '~/common/decorators/bypass.decorator'
 import { AuthUser } from '~/modules/auth/decorators/auth-user.decorator'
 
 import { DocContentService } from '~/shared/mongo/services/doc-content.service'
@@ -135,6 +138,18 @@ export class DocumentController {
     @AuthUser() user: IAuthUser,
   ): Promise<DocumentChatResponseDto> {
     return this.chatService.chat(dto, user)
+  }
+
+  @Post('chat/stream')
+  @ApiOperation({ summary: '知识库智能助手流式问答 (UI Message Stream / SSE 协议)' })
+  @Bypass()
+  async chatStream(
+    @Body() dto: DocumentChatDto,
+    @AuthUser() user: IAuthUser,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    reply.hijack()
+    await this.chatService.streamChat(dto, user, reply.raw)
   }
 
   @Post(':code/submit')

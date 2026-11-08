@@ -59,6 +59,8 @@ describe('HybridSearchService', () => {
         rerankModel: '',
         rerankBaseUrl: '',
         rerankProvider: 'local',
+        chatApiKey: '',
+        chatBaseUrl: '',
         chatModel: '',
       },
       localReranker,

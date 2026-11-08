@@ -23,6 +23,7 @@ export class ModelRerankerService implements IReranker {
   private readonly baseUrl: string
   private readonly provider: string
   private readonly isCloudflare: boolean
+  private readonly isDashScope: boolean
 
   constructor(
     @Inject(VectorConfig.KEY)
@@ -30,17 +31,26 @@ export class ModelRerankerService implements IReranker {
     private readonly fallbackReranker: HybridRerankerService,
   ) {
     this.apiKey = config.rerankApiKey || config.apiToken || ''
-    this.model = config.rerankModel || '@cf/baai/bge-reranker-base'
+    this.model = config.rerankModel || 'qwen3.7-text-rerank'
     this.provider = config.rerankProvider || (this.apiKey ? 'model' : 'local')
 
-    // 自动判定是否为 Cloudflare Workers AI 端点
+    // 自动判定协议提供方 (DashScope 阿里百炼 vs Cloudflare vs 通用)
+    this.isDashScope =
+      this.model.includes('qwen')
+      || this.model.includes('gte-')
+      || Boolean(config.rerankBaseUrl && config.rerankBaseUrl.includes('dashscope.aliyuncs.com'))
+
     this.isCloudflare =
-      this.model.startsWith('@cf/')
-      || (config.rerankBaseUrl && config.rerankBaseUrl.includes('cloudflare.com'))
-      || (!config.rerankBaseUrl && Boolean(config.accountId))
+      !this.isDashScope
+      && (this.model.startsWith('@cf/')
+      || Boolean(config.rerankBaseUrl && config.rerankBaseUrl.includes('cloudflare.com'))
+      || (!config.rerankBaseUrl && Boolean(config.accountId)))
 
     if (config.rerankBaseUrl) {
       this.baseUrl = config.rerankBaseUrl
+    }
+    else if (this.isDashScope) {
+      this.baseUrl = 'https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank'
     }
     else if (this.isCloudflare && config.accountId) {
       this.baseUrl = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/ai/run/${this.model}`
@@ -50,7 +60,7 @@ export class ModelRerankerService implements IReranker {
     }
 
     this.httpClient = axios.create({
-      timeout: 6000, // 6s 超时熔断保护，防止检索阻塞
+      timeout: 3500, // 3.5s 超时熔断保护，防止检索阻塞
     })
 
     if (!this.apiKey || this.provider === 'local') {
@@ -58,7 +68,7 @@ export class ModelRerankerService implements IReranker {
     }
     else {
       this.logger.log(
-        `[ModelReranker] ✅ 成功装配神经网络重排模型: provider=${this.provider}, model=${this.model}, endpoint=${this.baseUrl}`,
+        `[ModelReranker] ✅ 成功装配神经网络重排模型: provider=${this.isDashScope ? 'dashscope' : this.provider}, model=${this.model}, endpoint=${this.baseUrl}`,
       )
     }
   }
@@ -94,8 +104,9 @@ export class ModelRerankerService implements IReranker {
     query: string,
     candidates: CandidateChunk[],
   ): Promise<RerankedChunk[]> {
-    // 组装带上下文面包屑的候选切块文本
-    const documents = candidates.map((c) => {
+    // 仅将 RRF 靠前的 Top 8 候选切块送入跨洋重排，大幅降低传输体积与耗时
+    const targetCandidates = candidates.length > 8 ? candidates.slice(0, 8) : candidates
+    const documents = targetCandidates.map((c) => {
       if (c.headingPath) {
         return `[章节大纲: ${c.headingPath}]\n${c.content}`
       }
@@ -104,7 +115,37 @@ export class ModelRerankerService implements IReranker {
 
     const scores: number[] = new Array(candidates.length).fill(0)
 
-    if (this.isCloudflare) {
+    if (this.isDashScope) {
+      // 阿里百炼 DashScope 原生 text-rerank 协议格式 (支持 qwen3.7-text-rerank / gte-rerank)
+      const payload = {
+        model: this.model,
+        input: {
+          query,
+          documents,
+        },
+        parameters: {
+          top_n: targetCandidates.length,
+          return_documents: false,
+        },
+      }
+
+      const response = await this.httpClient.post(this.baseUrl, payload, {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const rawResults = response.data?.output?.results || []
+      for (const item of rawResults) {
+        const idx = typeof item.index === 'number' ? item.index : Number.parseInt(item.index, 10)
+        const score = item.relevance_score ?? item.score ?? 0
+        if (!Number.isNaN(idx) && idx >= 0 && idx < candidates.length) {
+          scores[idx] = this.normalizeScore(score)
+        }
+      }
+    }
+    else if (this.isCloudflare) {
       // Cloudflare Workers AI 协议格式: { query, contexts: [{ text: ... }] }
       const payload = {
         query,

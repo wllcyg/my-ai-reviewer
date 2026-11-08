@@ -24,6 +24,8 @@ describe('OpenAiEmbeddingProvider', () => {
         rerankBaseUrl: '',
         rerankProvider: 'local',
         chatModel: '',
+        chatApiKey: '',
+        chatBaseUrl: '',
       },
       mockFallback,
     )
@@ -52,6 +54,8 @@ describe('OpenAiEmbeddingProvider', () => {
         rerankBaseUrl: '',
         rerankProvider: 'local',
         chatModel: '',
+        chatApiKey: '',
+        chatBaseUrl: '',
       },
       mockFallback,
     )

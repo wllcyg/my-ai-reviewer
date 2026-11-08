@@ -1,4 +1,5 @@
-import { request, type RequestOptions } from '@/utils/request';
+import { request, baseApiUrl, type RequestOptions } from '@/utils/request';
+import { accessToken } from '@/store/runtime';
 
 export interface GenerateUploadSignParams {
   fileName: string;
@@ -279,6 +280,111 @@ export async function documentChat(data: DocumentChatParams, options?: RequestOp
     ...(options || {}),
   });
 }
+
+export interface DocumentChatStreamHandlers {
+  onStatus?: (status: { stage: string; text: string }) => void;
+  onSources?: (sources: CitationItem[]) => void;
+  onTextDelta?: (delta: string) => void;
+  onReasoningDelta?: (text: string) => void;
+  onFinish?: () => void;
+  onError?: (err: Error) => void;
+}
+
+/** 知识库智能助手流式问答 POST /api/documents/chat/stream */
+export async function documentChatStream(
+  data: DocumentChatParams,
+  handlers: DocumentChatStreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const url = `${baseApiUrl || ''}/api/documents/chat/stream`;
+  const token = accessToken.value;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(data),
+    signal,
+  });
+
+  if (!response.ok) {
+    const errorMsg = `流式请求失败: HTTP ${response.status} ${response.statusText}`;
+    handlers.onError?.(new Error(errorMsg));
+    return;
+  }
+
+  if (!response.body) {
+    handlers.onError?.(new Error('未接收到流式响应体'));
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const dataPrefix = 'data: ';
+        let payload = '';
+        if (trimmed.startsWith(dataPrefix)) {
+          payload = trimmed.slice(dataPrefix.length).trim();
+        } else {
+          const subLines = trimmed.split('\n');
+          for (const sub of subLines) {
+            if (sub.startsWith('data:')) {
+              payload += sub.slice(5).trim();
+            }
+          }
+        }
+
+        if (payload === '[DONE]') {
+          handlers.onFinish?.();
+          return;
+        }
+
+        try {
+          const event = JSON.parse(payload);
+          if (event.type === 'data-status' && event.data) {
+            handlers.onStatus?.(event.data);
+          } else if (event.type === 'data-sources' && Array.isArray(event.data)) {
+            handlers.onSources?.(event.data);
+          } else if (event.type === 'text-delta' && event.delta) {
+            handlers.onTextDelta?.(event.delta);
+          } else if (event.type === 'reasoning-delta' && (event.text || event.delta)) {
+            handlers.onReasoningDelta?.(event.text || event.delta);
+          } else if (event.type === 'finish') {
+            handlers.onFinish?.();
+          } else if (event.type === 'error' && event.errorText) {
+            handlers.onError?.(new Error(event.errorText));
+          }
+        } catch {
+          // 非 JSON 数据行跳过
+        }
+      }
+    }
+    handlers.onFinish?.();
+  } catch (err: any) {
+    if (signal?.aborted) return;
+    handlers.onError?.(err instanceof Error ? err : new Error(String(err)));
+  }
+}
+
 
 
 

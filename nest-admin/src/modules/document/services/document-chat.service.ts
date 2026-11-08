@@ -1,3 +1,4 @@
+import type { ServerResponse } from 'node:http'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { AIMessage, BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { StringOutputParser } from '@langchain/core/output_parsers'
@@ -5,11 +6,28 @@ import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts
 import { RunnableSequence } from '@langchain/core/runnables'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { ChatOpenAI } from '@langchain/openai'
+import { createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai'
+import { toUIMessageStream } from '@ai-sdk/langchain'
+import { traceable } from 'langsmith/traceable'
+import dotenv from 'dotenv'
 import { z } from 'zod'
+
+// 保证热重载或即时调用下环境变量与 LangSmith 追踪无缝生效
+dotenv.config()
+if (process.env.LANGSMITH_API_KEY) {
+  // 避免 LANGSMITH_AGENT_* 与 LANGSMITH_PROJECT 同时存在导致 LangSmith 抑制通用链路追踪
+  delete process.env.LANGSMITH_AGENT_ID
+  delete process.env.LANGSMITH_AGENT_ENVIRONMENT
+  process.env.LANGCHAIN_TRACING_V2 = process.env.LANGSMITH_TRACING || 'true'
+  process.env.LANGCHAIN_ENDPOINT = process.env.LANGSMITH_ENDPOINT || 'https://api.smith.langchain.com'
+  process.env.LANGCHAIN_API_KEY = process.env.LANGSMITH_API_KEY
+  process.env.LANGCHAIN_PROJECT = process.env.LANGSMITH_PROJECT || 'my-dev'
+}
 
 import { IVectorConfig, VectorConfig } from '~/config/vector.config'
 import {
   CitationItemDto,
+  DocChatUIMessage,
   DocumentChatDto,
   DocumentChatResponseDto,
 } from '../dto/document-chat.dto'
@@ -76,7 +94,7 @@ export class DocumentChatService {
       {
         query,
         limit: 3,
-        topKPerRoute: 15,
+        topKPerRoute: 6,
         docCode: dto.docCode,
         category: dto.category,
         enableRerank: true,
@@ -141,6 +159,35 @@ export class DocumentChatService {
   }
 
   /**
+   * 自动解析最优的大模型服务商配置 (优先 DeepSeek 官方直连，其次 Cloudflare Workers AI)
+   */
+  private resolveChatConfig() {
+    const deepseekKey =
+      process.env.DEEPSEEK_API_KEY
+      || (this.vectorConfig.chatApiKey?.startsWith('sk-') ? this.vectorConfig.chatApiKey : '')
+
+    if (deepseekKey) {
+      return {
+        apiKey: deepseekKey,
+        baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
+        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+      }
+    }
+
+    const apiKey = this.vectorConfig.chatApiKey || this.vectorConfig.apiToken || process.env.CLOUDFLARE_API_TOKEN || ''
+    const accountId = this.vectorConfig.accountId || process.env.CLOUDFLARE_ACCOUNT_ID || ''
+    const baseURL =
+      this.vectorConfig.chatBaseUrl
+      || (accountId ? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1` : 'https://api.deepseek.com')
+    let model = this.vectorConfig.chatModel || '@cf/meta/llama-3.1-8b-instruct'
+    if (model.includes('infire')) {
+      model = '@cf/meta/llama-3.1-8b-instruct'
+    }
+
+    return { apiKey, baseURL, model }
+  }
+
+  /**
    * 基于 LangChain (LCEL) 表达语言执行结构化 RAG 生成
    */
   private async callLangChainRAG(
@@ -148,23 +195,21 @@ export class DocumentChatService {
     contextFragments: string[],
     history: Array<{ role: 'user' | 'assistant', content: string }> = [],
   ): Promise<string> {
-    const accountId = this.vectorConfig.accountId
-    const apiToken = this.vectorConfig.apiToken
-    const chatModel = this.vectorConfig.chatModel || '@cf/meta/llama-3.1-8b-instruct'
+    const { apiKey: chatApiKey, baseURL: chatBaseUrl, model: chatModel } = this.resolveChatConfig()
 
-    if (!accountId || !apiToken) {
-      throw new Error('未配置 Cloudflare API Token 或 Account ID')
+    if (!chatApiKey) {
+      throw new Error('未配置大模型 API Key')
     }
 
-    // 1. 初始化兼容 OpenAI 规范的 LangChain ChatModel (直连 Cloudflare Workers AI v1 端点)
+    // 1. 初始化兼容 OpenAI 规范的 LangChain ChatModel (直连 DeepSeek / Cloudflare 端点)
     const llm = new ChatOpenAI({
-      apiKey: apiToken,
+      apiKey: chatApiKey,
       configuration: {
-        baseURL: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
+        baseURL: chatBaseUrl,
       },
-      modelName: chatModel,
+      model: chatModel,
       temperature: 0.3,
-      timeout: 15000,
+      timeout: 25000,
     })
 
     // 2. 构造 LangChain 格式系统提示词与提示词模板 (ChatPromptTemplate)
@@ -228,4 +273,248 @@ export class DocumentChatService {
       + `- 具体业务执行中请严格按照对应限额与流程要求办理；\n`
       + `- 您可以在下方 **“参考知识库来源”** 展开卡片中查阅各章节详细出处与证明文本。`
   }
+
+  /**
+   * 知识库 AI 流式对话问答 (基于 Vercel AI SDK UI Message Stream 与 LangChain 流融合)
+   */
+  async streamChat(
+    dto: DocumentChatDto,
+    user: IAuthUser,
+    res: ServerResponse,
+  ): Promise<void> {
+    const startTime = Date.now()
+    const query = dto.query?.trim() || ''
+
+    if (typeof (res as any).setHeaders !== 'function') {
+      ;(res as any).setHeaders = (headers: any) => {
+        if (headers && typeof headers.forEach === 'function') {
+          headers.forEach((value: string, key: string) => {
+            res.setHeader(key, value)
+          })
+        }
+      }
+    }
+
+    const stream = createUIMessageStream<DocChatUIMessage>({
+      execute: async ({ writer }) => {
+        writer.write({ type: 'start' })
+
+        if (!query) {
+          writer.write({ type: 'text-start', id: 'empty' })
+          writer.write({
+            type: 'text-delta',
+            id: 'empty',
+            delta: '请输入您要咨询的知识库问题。',
+          })
+          writer.write({ type: 'text-end', id: 'empty' })
+          writer.write({ type: 'finish' })
+          return
+        }
+
+        // 1. 发射阶段状态通知: 正在执行多路检索与重排
+        writer.write({
+          type: 'data-status',
+          data: {
+            stage: 'retrieve',
+            text: '正在多路召回知识库并执行语义重排…',
+          },
+        })
+
+        // 2. 调度混合检索
+        const citations: CitationItemDto[] = []
+        const contextFragments: string[] = []
+
+        try {
+          const runHybridSearch = traceable(
+            async () => this.hybridSearchService.search(
+              {
+                query,
+                limit: 3,
+                topKPerRoute: 6,
+                docCode: dto.docCode,
+                category: dto.category,
+                enableRerank: true,
+              },
+              user,
+            ),
+            { name: 'hybrid_search_retrieval', run_type: 'retriever' },
+          )
+          const searchRes = await runHybridSearch()
+
+          let citeIndex = 1
+          for (const doc of searchRes.items) {
+            for (const chunk of doc.chunks) {
+              if (citations.length < 4) {
+                const rawScore = chunk.rerankScore || chunk.score || doc.score || 0.85
+                const normalizedScore = rawScore < 0.1
+                  ? Math.min(Math.max(rawScore * 30, 0.65), 0.98)
+                  : Math.min(Math.max(rawScore, 0.50), 0.99)
+
+                citations.push({
+                  docCode: doc.docCode,
+                  title: doc.title,
+                  headingPath: chunk.headingPath,
+                  score: Number(normalizedScore.toFixed(4)),
+                  snippet:
+                    chunk.content.length > 200
+                      ? `${chunk.content.slice(0, 200)}...`
+                      : chunk.content,
+                })
+                contextFragments.push(
+                  `[${citeIndex}] 《${doc.title}》 - 章节: ${chunk.headingPath || '正文'}\n${chunk.content}`,
+                )
+                citeIndex++
+              }
+            }
+          }
+        } catch (error: any) {
+          this.logger.warn(`[DocumentChat] 混合检索失败: ${error?.message || error}`)
+        }
+
+        // 3. 推送检索到的参考来源
+        writer.write({
+          type: 'data-sources',
+          data: citations,
+        })
+
+        // 4. 若未召回任何内容，友好兜底
+        if (contextFragments.length === 0) {
+          writer.write({ type: 'text-start', id: 'not-found' })
+          writer.write({
+            type: 'text-delta',
+            id: 'not-found',
+            delta: `抱歉，在企业知识库中未检索到与 **“${query}”** 直接相关的正式制度或技术文档。\n\n建议您：\n1. 尝试更换更具体的关键词（如具体报销标准、架构规范、考勤作息等）；\n2. 确认您是否拥有该文档的查看权限；\n3. 联系文档管理员上传并发布相应业务文件。`,
+          })
+          writer.write({ type: 'text-end', id: 'not-found' })
+          writer.write({ type: 'finish' })
+          return
+        }
+
+        // 5. 组装 LangChain LLM 流
+        const { apiKey: chatApiKey, baseURL: chatBaseUrl, model: chatModel } = this.resolveChatConfig()
+
+        if (!chatApiKey) {
+          this.logger.warn('[DocumentChat] 未检测到可用大模型 API Key，启用本地兜底合成回复')
+          const fallback = this.synthesizeLocalAnswer(query, citations)
+          writer.write({ type: 'text-start', id: 'fallback' })
+          writer.write({ type: 'text-delta', id: 'fallback', delta: fallback })
+          writer.write({ type: 'text-end', id: 'fallback' })
+          writer.write({ type: 'finish' })
+          return
+        }
+
+        this.logger.log(`[DocumentChat] 发起 LLM 流式对话: model=${chatModel}, endpoint=${chatBaseUrl}`)
+
+        const llm = new ChatOpenAI({
+          apiKey: chatApiKey,
+          configuration: {
+            baseURL: chatBaseUrl,
+          },
+          model: chatModel,
+          temperature: 0.3,
+          timeout: 30000,
+        })
+
+        const systemPrompt = `你是一个专业、严谨的企业知识库 AI 助理。请依据下方提供的【企业正式参考文档及条款】，准确、客观、条理清晰地回答用户的问题。
+【回答规则】：
+1. 严格以提供的参考文档内容为准，严禁凭空臆造规章标准或参数；
+2. 依据资料的陈述句末请标出对应资料编号如 [1]、[2]，与参考条款编号一致；
+3. 回答需结构清晰，重点明确，使用 Markdown 格式（标题、加粗、列表）排版；
+4. 如果参考文档未涉及用户提问的核心细节，请诚实告知；
+5. 语言使用正式、专业的中文。
+
+【企业正式参考文档及条款】：
+{context}`
+
+        const promptTemplate = ChatPromptTemplate.fromMessages([
+          ['system', systemPrompt],
+          new MessagesPlaceholder('chat_history'),
+          ['human', '{input}'],
+        ])
+
+        const chatHistory: BaseMessage[] = (dto.history || []).slice(-4).map((h) => {
+          return h.role === 'user'
+            ? new HumanMessage(h.content)
+            : new AIMessage(h.content)
+        })
+
+        const ragChain = promptTemplate.pipe(llm).withConfig({
+          runName: 'deepseek_rag_generation',
+          tags: ['production', 'knowledge-hub'],
+          metadata: { query, docCode: dto.docCode },
+        })
+        try {
+          const langchainStream = await ragChain.stream({
+            context: contextFragments.join('\n\n'),
+            chat_history: chatHistory,
+            input: query,
+          })
+
+          // 6. 将 LangChain 流桥接进 UI Message Stream
+          writer.merge(
+            toUIMessageStream(mapReasoningStream(langchainStream) as never, {
+              sendStart: false,
+              sendFinish: false,
+              onError: (err) => {
+                this.logger.warn(`[DocumentChat] LangChain 流异常: ${err.message}`)
+              },
+            }) as never,
+          )
+        } catch (llmErr: any) {
+          this.logger.error(`[DocumentChat] LLM 流式调用异常 (${llmErr?.message || llmErr})`, llmErr?.stack)
+          const fallback = this.synthesizeLocalAnswer(query, citations)
+          writer.write({ type: 'text-start', id: 'fallback' })
+          writer.write({ type: 'text-delta', id: 'fallback', delta: fallback })
+          writer.write({ type: 'text-end', id: 'fallback' })
+          writer.write({ type: 'finish' })
+        }
+      },
+      onFinish: async ({ responseMessage }) => {
+        const costMs = Date.now() - startTime
+        const parts = responseMessage?.parts ?? []
+        const answer = parts
+          .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+          .map((p) => p.text)
+          .join('')
+          .trim()
+        this.logger.log(`[DocumentChat] 流式问答完成 (耗时: ${costMs}ms, 回复字数: ${answer.length})`)
+      },
+      onError: (err) => (err instanceof Error ? err.message : String(err)),
+    })
+
+    await pipeUIMessageStreamToResponse({ response: res, stream })
+  }
 }
+
+/**
+ * 思考流字段转换生成器 (兼容百炼/DeepSeek reasoning_content 与 summary)
+ */
+async function* mapReasoningStream(
+  stream: AsyncIterable<unknown>,
+): AsyncIterable<unknown> {
+  for await (const event of stream) {
+    attachReasoningCompat(event)
+    yield event
+  }
+}
+
+function attachReasoningCompat(value: unknown, seen = new Set<object>()): void {
+  if (value == null || typeof value !== 'object' || seen.has(value)) return
+  seen.add(value)
+  if (Array.isArray(value)) {
+    for (const item of value) attachReasoningCompat(item, seen)
+    return
+  }
+  const obj = value as Record<string, unknown>
+  const kwargs = obj.additional_kwargs as Record<string, unknown> | undefined
+  if (typeof kwargs?.reasoning_content === 'string' && kwargs.reasoning_content) {
+    kwargs.reasoning = {
+      summary: [{ type: 'summary_text', text: kwargs.reasoning_content }],
+    }
+  }
+  attachReasoningCompat(obj.chunk, seen)
+  attachReasoningCompat(obj.data, seen)
+  attachReasoningCompat(obj.kwargs, seen)
+  attachReasoningCompat(obj.messages, seen)
+}
+
