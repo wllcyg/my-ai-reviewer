@@ -160,6 +160,28 @@ export async function documentAudit(
   });
 }
 
+/** 归档/下线文档（置为 ARCHIVED 状态并彻底从 RAG 检索池下架切块） POST /api/documents/:code/archive */
+export async function documentArchive(
+  code: string,
+  options?: RequestOptions,
+) {
+  return request<DocumentItemEntity>(`/api/documents/${code}/archive`, {
+    method: 'POST',
+    ...(options || {}),
+  });
+}
+
+/** 将已归档文档恢复为草稿状态（置为 DRAFT，允许重新编辑与再次提审） POST /api/documents/:code/unarchive */
+export async function documentUnarchive(
+  code: string,
+  options?: RequestOptions,
+) {
+  return request<DocumentItemEntity>(`/api/documents/${code}/unarchive`, {
+    method: 'POST',
+    ...(options || {}),
+  });
+}
+
 /** 获取私密文档的授权预览访问链接 GET /api/documents/access-url */
 export async function documentGetAccessUrl(
   params: { storageKey: string },

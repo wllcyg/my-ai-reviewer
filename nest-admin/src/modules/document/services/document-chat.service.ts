@@ -105,21 +105,24 @@ export class DocumentChatService {
     // 2. 提炼 Top 引用出处切块 (用于溯源卡片与 LLM 知识注入)
     const citations: CitationItemDto[] = []
     const contextFragments: string[] = []
+    const MIN_RELEVANCE_THRESHOLD = 0.35
 
     for (const doc of searchRes.items) {
       for (const chunk of doc.chunks) {
         if (citations.length < 4) {
-          const rawScore = chunk.rerankScore || chunk.score || doc.score || 0.85
-          // 归一化置信度：若是原始微小 RRF 排名分 (如 0.016 这种小于 0.1 的浮点)，按 30 倍映射为直观百分比；保底区间在 65% ~ 98%
-          const normalizedScore = rawScore < 0.1
-            ? Math.min(Math.max(rawScore * 30, 0.65), 0.98)
-            : Math.min(Math.max(rawScore, 0.50), 0.99)
+          const rawScore = chunk.rerankScore ?? chunk.score ?? doc.score ?? 0.0
+          // 核心置信度过滤：低于阈值的无关切块果断过滤，不强行注入上下文
+          if (rawScore < MIN_RELEVANCE_THRESHOLD) {
+            continue
+          }
+
+          const normalizedScore = Number(Math.min(Math.max(rawScore, 0.40), 0.99).toFixed(4))
 
           citations.push({
             docCode: doc.docCode,
             title: doc.title,
             headingPath: chunk.headingPath,
-            score: Number(normalizedScore.toFixed(4)),
+            score: normalizedScore,
             snippet:
               chunk.content.length > 200
                 ? `${chunk.content.slice(0, 200)}...`
@@ -342,19 +345,24 @@ export class DocumentChatService {
           const searchRes = await runHybridSearch()
 
           let citeIndex = 1
+          const MIN_RELEVANCE_THRESHOLD = 0.35
+
           for (const doc of searchRes.items) {
             for (const chunk of doc.chunks) {
               if (citations.length < 4) {
-                const rawScore = chunk.rerankScore || chunk.score || doc.score || 0.85
-                const normalizedScore = rawScore < 0.1
-                  ? Math.min(Math.max(rawScore * 30, 0.65), 0.98)
-                  : Math.min(Math.max(rawScore, 0.50), 0.99)
+                const rawScore = chunk.rerankScore ?? chunk.score ?? doc.score ?? 0.0
+                // 核心置信度过滤：低于阈值的无关切块果断过滤，不强行注入上下文
+                if (rawScore < MIN_RELEVANCE_THRESHOLD) {
+                  continue
+                }
+
+                const normalizedScore = Number(Math.min(Math.max(rawScore, 0.40), 0.99).toFixed(4))
 
                 citations.push({
                   docCode: doc.docCode,
                   title: doc.title,
                   headingPath: chunk.headingPath,
-                  score: Number(normalizedScore.toFixed(4)),
+                  score: normalizedScore,
                   snippet:
                     chunk.content.length > 200
                       ? `${chunk.content.slice(0, 200)}...`
@@ -371,11 +379,13 @@ export class DocumentChatService {
           this.logger.warn(`[DocumentChat] 混合检索失败: ${error?.message || error}`)
         }
 
-        // 3. 推送检索到的参考来源
-        writer.write({
-          type: 'data-sources',
-          data: citations,
-        })
+        // 3. 推送检索到的参考来源 (仅当真正命中高置信度出处时才下发卡片)
+        if (citations.length > 0) {
+          writer.write({
+            type: 'data-sources',
+            data: citations,
+          })
+        }
 
         // 4. 若未召回任何内容，友好兜底
         if (contextFragments.length === 0) {

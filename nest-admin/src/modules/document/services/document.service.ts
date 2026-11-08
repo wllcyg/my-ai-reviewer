@@ -341,6 +341,7 @@ export class DocumentService {
       }
 
       doc.status = DocumentStatusEnum.ARCHIVED
+      doc.vectorStatus = VectorStatusEnum.UNPROCESSED
       return manager.save(DocumentEntity, doc)
     })
 
@@ -354,6 +355,49 @@ export class DocumentService {
     }
     catch (err: any) {
       this.logger.warn(`[DocumentService] 归档清理检索切块失败: ${err.message}`)
+    }
+
+    return document
+  }
+
+  /**
+   * 根据业务编码将已归档文档恢复为草稿状态（置为 DRAFT，允许重新编辑与再次提审）
+   */
+  async unarchiveByCode(code: string, user: IAuthUser): Promise<DocumentEntity> {
+    const document = await this.docRepo.manager.transaction(async (manager) => {
+      const doc = await lockDocumentByCode(manager, code)
+
+      if (
+        !this.permission.isAdmin(user)
+        && !this.permission.isOwner(doc, user)
+      ) {
+        throw new ForbiddenException('您无权操作他人创建的文档')
+      }
+
+      if (doc.status !== DocumentStatusEnum.ARCHIVED) {
+        throw new BadRequestException(
+          `当前文档不在归档状态 (当前状态: ${doc.status})，无法恢复为草稿`,
+        )
+      }
+
+      doc.status = DocumentStatusEnum.DRAFT
+      doc.reviewStatus = ReviewStatusEnum.INIT
+      doc.vectorStatus = VectorStatusEnum.UNPROCESSED
+      doc.reviewRemark = '已从归档状态恢复为草稿'
+      doc.updateBy = user.uid
+      return manager.save(DocumentEntity, doc)
+    })
+
+    // 防御性再次确保切块不在检索池中
+    try {
+      await Promise.allSettled([
+        this.vectorService.deleteDocumentVectors(code),
+        this.openSearchService.deleteDocumentChunks(code),
+      ])
+      this.logger.log(`[DocumentService] 文档 [${code}] 已恢复为草稿状态，并确保检索切块保持清空`)
+    }
+    catch (err: any) {
+      this.logger.warn(`[DocumentService] 恢复草稿校验切块失败: ${err.message}`)
     }
 
     return document

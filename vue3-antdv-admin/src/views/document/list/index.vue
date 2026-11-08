@@ -238,6 +238,8 @@
     documentAudit,
     documentGetMeta,
     documentReVector,
+    documentArchive,
+    documentUnarchive,
     type DocumentMetaResult,
   } from '@/api/backend/api/document';
   import DocumentUploadModal from './components/DocumentUploadModal.vue';
@@ -397,6 +399,30 @@
     rowSelection.value.selectedRowKeys = [];
   };
 
+  // 归档下线处理 (PUBLISHED 状态下触发)
+  const handleArchive = async (record: DocumentItem) => {
+    try {
+      if (!record.docCode) return;
+      await documentArchive(record.docCode);
+      message.success(`《${record.title}》已成功归档下线，并已同步清理向量与全文检索切块！`);
+      dynamicTableInstance?.reload();
+    } catch (err: any) {
+      message.error(`归档失败: ${err?.message || '未知错误'}`);
+    }
+  };
+
+  // 恢复草稿处理 (ARCHIVED 状态下触发)
+  const handleUnarchive = async (record: DocumentItem) => {
+    try {
+      if (!record.docCode) return;
+      await documentUnarchive(record.docCode);
+      message.success(`《${record.title}》已恢复为草稿状态，您可以重新编辑并再次提交审核！`);
+      dynamicTableInstance?.reload();
+    } catch (err: any) {
+      message.error(`恢复草稿失败: ${err?.message || '未知错误'}`);
+    }
+  };
+
   // 6. 传递给 DynamicTable 的列定义 (动态响应后端枚举元数据)
   const columns = computed(() =>
     getDocumentColumns({
@@ -405,6 +431,8 @@
       onApprove: handleApprove,
       onReject: openRejectModal,
       onReVector: handleReVector,
+      onArchive: handleArchive,
+      onUnarchive: handleUnarchive,
       onDelete: handleDelete,
       meta: documentMeta.value,
     }),

@@ -7,7 +7,12 @@ import { EntityManager, QueryFailedError, Repository, SelectQueryBuilder } from 
 
 import { DocContentService } from '~/shared/mongo/services/doc-content.service'
 import { DocParserService } from '~/shared/parser/doc-parser.service'
-import { DocumentScopeEnum, DocumentStatusEnum } from '../document.constant'
+import {
+  DocumentScopeEnum,
+  DocumentStatusEnum,
+  ReviewStatusEnum,
+  VectorStatusEnum,
+} from '../document.constant'
 import { DocumentEntity } from '../document.entity'
 import { CreateDocumentDto } from '../dto/create-document.dto'
 import { R2StorageService } from '../r2-storage.service'
@@ -288,6 +293,45 @@ describe('documentService', () => {
       expect(archived.status).toBe(DocumentStatusEnum.ARCHIVED)
       expect(mockVectorService.deleteDocumentVectors).toHaveBeenCalledWith('doc_arc_01')
       expect(mockOpenSearchService.deleteDocumentChunks).toHaveBeenCalledWith('doc_arc_01')
+    })
+  })
+
+  describe('unarchiveByCode', () => {
+    it('将已归档文档恢复为草稿状态并保持检索切块清空', async () => {
+      const myDoc = {
+        id: 3,
+        docCode: 'doc_arc_02',
+        title: '恢复草稿测试',
+        status: DocumentStatusEnum.ARCHIVED,
+        createBy: normalUser.uid,
+      } as DocumentEntity
+
+      ;(mockManager.findOne as jest.Mock).mockResolvedValue(myDoc)
+      ;(mockManager.save as jest.Mock).mockImplementation((_entity, val) => Promise.resolve(val))
+
+      const restored = await service.unarchiveByCode('doc_arc_02', normalUser)
+
+      expect(restored.status).toBe(DocumentStatusEnum.DRAFT)
+      expect(restored.reviewStatus).toBe(ReviewStatusEnum.INIT)
+      expect(restored.vectorStatus).toBe(VectorStatusEnum.UNPROCESSED)
+      expect(mockVectorService.deleteDocumentVectors).toHaveBeenCalledWith('doc_arc_02')
+      expect(mockOpenSearchService.deleteDocumentChunks).toHaveBeenCalledWith('doc_arc_02')
+    })
+
+    it('非已归档文档尝试恢复草稿时抛出 BadRequestException', async () => {
+      const draftDoc = {
+        id: 4,
+        docCode: 'doc_draft_01',
+        title: '草稿测试',
+        status: DocumentStatusEnum.DRAFT,
+        createBy: normalUser.uid,
+      } as DocumentEntity
+
+      ;(mockManager.findOne as jest.Mock).mockResolvedValue(draftDoc)
+
+      await expect(
+        service.unarchiveByCode('doc_draft_01', normalUser),
+      ).rejects.toThrow(BadRequestException)
     })
   })
 

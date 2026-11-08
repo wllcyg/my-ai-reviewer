@@ -227,6 +227,17 @@ export class DocumentController {
     return this.documentService.archiveByCode(code, user)
   }
 
+  @Post(':code/unarchive')
+  @ApiOperation({ summary: '根据业务编码将已归档文档恢复为草稿状态（置为 DRAFT，允许重新编辑与再次提审）' })
+  @ApiOkResponse({ type: DocumentEntity })
+  @ApiResult({ type: DocumentEntity })
+  async unarchive(
+    @Param('code') code: string,
+    @AuthUser() user: IAuthUser,
+  ): Promise<DocumentEntity> {
+    return this.documentService.unarchiveByCode(code, user)
+  }
+
   @Post(':code/re-vector')
   @ApiOperation({ summary: '重新触发文档切片与多路衍生向量化管道' })
   @ApiOkResponse({ type: DocumentEntity })

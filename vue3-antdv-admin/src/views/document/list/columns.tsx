@@ -104,6 +104,8 @@ export const getDocumentColumns = (actions: {
   onApprove: (record: DocumentItem) => void;
   onReject: (record: DocumentItem) => void;
   onReVector: (record: DocumentItem) => void;
+  onArchive?: (record: DocumentItem) => void;
+  onUnarchive?: (record: DocumentItem) => void;
   onDelete: (record: DocumentItem) => void;
   meta?: DocumentMetaResult | null;
 }): DocumentColumnItem[] => {
@@ -214,6 +216,12 @@ export const getDocumentColumns = (actions: {
     width: 160,
     hideInSearch: true,
     customRender: ({ record }) => {
+      if (record.status === 'ARCHIVED') {
+        return <Badge status="default" text="已下线 (不可检索)" />;
+      }
+      if (record.status === 'DRAFT') {
+        return <Badge status="default" text="草稿 (不可检索)" />;
+      }
       const vs = record.vectorStatus;
       const found = vectorStatuses.find((v) => v.value === vs);
       if (found) {
@@ -309,6 +317,27 @@ export const getDocumentColumns = (actions: {
               label: '重新向量化',
               type: 'link' as const,
               onClick: () => actions.onReVector(record),
+            },
+            {
+              label: '归档下线',
+              type: 'link' as const,
+              danger: true,
+              popConfirm: {
+                title: `确定要将《${record.title}》归档下线吗？归档后将从 RAG 检索池中彻底移除向量与全文切块`,
+                onConfirm: () => actions.onArchive?.(record),
+              },
+            },
+          ]
+        : []),
+      ...(record.status === 'ARCHIVED'
+        ? [
+            {
+              label: '恢复为草稿',
+              type: 'link' as const,
+              popConfirm: {
+                title: `确定要将已归档的《${record.title}》恢复为草稿吗？恢复后可重新编辑内容并再次提审`,
+                onConfirm: () => actions.onUnarchive?.(record),
+              },
             },
           ]
         : []),

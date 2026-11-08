@@ -5,6 +5,7 @@ import { traceable } from 'langsmith/traceable'
 
 import { OpenSearchService } from '~/shared/opensearch/opensearch.service'
 import { VectorService } from '~/shared/vector/vector.service'
+import { DocumentStatusEnum } from '../document.constant'
 import { DocumentEntity } from '../document.entity'
 import {
   HitDocumentChunkDto,
@@ -211,16 +212,20 @@ export class HybridSearchService {
       return { items: [], total: 0, costMs: Date.now() - startTime, query }
     }
 
-    // 6. 批量从 MySQL 加载文档完整实体信息
+    // 6. 批量从 MySQL 加载文档完整实体信息 (强制仅允许 PUBLISHED 发布状态文档进入 RAG 知识库检索)
     const docEntities = await this.docRepo.find({
       where: {
         docCode: In(hitDocCodes),
+        status: DocumentStatusEnum.PUBLISHED,
         deletedAt: IsNull(),
       },
     })
 
-    // 7. 安全权限二次校验与分类过滤
+    // 7. 安全权限二次校验与分类过滤 (双重防御：过滤掉任何非已发布文档)
     const authorizedDocs = docEntities.filter((doc) => {
+      if (doc.status !== DocumentStatusEnum.PUBLISHED) {
+        return false
+      }
       if (dto.category && doc.category !== dto.category) {
         return false
       }
