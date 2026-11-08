@@ -109,7 +109,6 @@ export const getDocumentColumns = (actions: {
 }): DocumentColumnItem[] => {
   const categories = actions.meta?.categories?.length ? actions.meta.categories : defaultCategoryOptions;
   const vectorStatuses = actions.meta?.vectorStatus?.length ? actions.meta.vectorStatus : defaultVectorStatusOptions;
-  const reviewStatuses = actions.meta?.reviewStatus?.length ? actions.meta.reviewStatus : defaultReviewStatusOptions;
   const documentStatuses = actions.meta?.documentStatus?.length ? actions.meta.documentStatus : defaultDocumentStatusOptions;
 
   return [
@@ -265,6 +264,15 @@ export const getDocumentColumns = (actions: {
     hideInSearch: true,
     fixed: 'right',
     actions: ({ record }) => [
+      ...(actions.onOpenReport
+        ? [
+            {
+              label: '审查报告',
+              type: 'link' as const,
+              onClick: () => actions.onOpenReport!(record),
+            },
+          ]
+        : []),
       ...(record.status === 'DRAFT'
         ? [
             {

@@ -1,5 +1,8 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { Logger } from '@nestjs/common'
 import { InfisicalSDK } from '@infisical/sdk'
+import dotenv from 'dotenv'
 
 const logger = new Logger('InfisicalLoader')
 
@@ -34,6 +37,23 @@ export async function loadInfisicalSecrets() {
     })
 
     logger.log(`✓ 云端配置同步成功，共装载 ${secrets.length} 个配置变量`)
+
+    // 核心：在云端配置加载后，优先读取本地 .env 再次进行强制覆盖 (override: true)
+    // 保证本地开发时在 .env 显式指定的变量（如 REDIS_HOST=127.0.0.1）拥有最高优先级，不被云端配置覆盖！
+    const envPaths = [
+      path.resolve(process.cwd(), '.env'),
+      path.resolve(process.cwd(), 'nest-admin/.env'),
+      path.resolve(__dirname, '../../.env'),
+    ]
+    for (const p of envPaths) {
+      if (fs.existsSync(p)) {
+        const result = dotenv.config({ path: p, override: true })
+        if (result.parsed) {
+          logger.log(`✓ 已成功应用本地 .env 覆盖配置: ${Object.keys(result.parsed).join(', ')}`)
+          break
+        }
+      }
+    }
   } catch (error) {
     logger.error(`✗ 从 Infisical 同步云端配置失败: ${error?.message || error}，将回退使用本地环境变量`)
   }

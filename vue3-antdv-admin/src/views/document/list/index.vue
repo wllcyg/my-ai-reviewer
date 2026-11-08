@@ -400,6 +400,7 @@
   // 6. 传递给 DynamicTable 的列定义 (动态响应后端枚举元数据)
   const columns = computed(() =>
     getDocumentColumns({
+      onOpenReport: handleOpenReport,
       onSubmitReview: handleSubmitReview,
       onApprove: handleApprove,
       onReject: openRejectModal,

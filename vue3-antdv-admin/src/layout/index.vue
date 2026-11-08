@@ -26,6 +26,8 @@
       </Layout.Content>
       <PageFooter />
     </Layout>
+    <!-- 全局右下角知识库 AI 助理悬浮组件 -->
+    <AiChatWidget />
   </Layout>
 </template>
 
@@ -33,6 +35,7 @@
   import { ref, computed } from 'vue';
   import { storeToRefs } from 'pinia';
   import { Layout } from 'ant-design-vue';
+  import { AiChatWidget } from '@/components/business/ai-chat';
   import Logo from './logo/index.vue';
   import { TabsView } from './tabs';
   import AsideMenu from './menu/menu.vue';
