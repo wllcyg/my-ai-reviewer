@@ -20,6 +20,14 @@ import { DocumentEntity } from './document.entity'
 import { AuditDocumentDto, SubmitReviewDto } from './dto/audit-document.dto'
 import { CreateDocumentDto } from './dto/create-document.dto'
 import { DocumentMetaDto } from './dto/document-meta.dto'
+import {
+  DocumentChatDto,
+  DocumentChatResponseDto,
+} from './dto/document-chat.dto'
+import {
+  HybridSearchDto,
+  HybridSearchResponseDto,
+} from './dto/hybrid-search.dto'
 import { QueryApprovalDto } from './dto/query-approval.dto'
 import { QueryDocumentDto } from './dto/query-document.dto'
 import { UpdateDocContentDto } from './dto/update-content.dto'
@@ -28,8 +36,10 @@ import {
   UploadSignResultDto,
 } from './dto/upload-sign.dto'
 import { DocumentApprovalService } from './services/document-approval.service'
+import { DocumentChatService } from './services/document-chat.service'
 import { DocumentMetaService } from './services/document-meta.service'
 import { DocumentService } from './services/document.service'
+import { HybridSearchService } from './services/hybrid-search.service'
 
 @ApiTags('Document - 知识库文档模块')
 @Controller('documents')
@@ -39,6 +49,8 @@ export class DocumentController {
     private readonly approvalService: DocumentApprovalService,
     private readonly metaService: DocumentMetaService,
     private readonly docContentService: DocContentService,
+    private readonly hybridSearchService: HybridSearchService,
+    private readonly chatService: DocumentChatService,
   ) {}
 
   @Post('upload-sign')
@@ -101,6 +113,28 @@ export class DocumentController {
     @AuthUser() user: IAuthUser,
   ): Promise<{ items: any[], total: number }> {
     return this.approvalService.findApprovalRecords(dto, user)
+  }
+
+  @Post('search/hybrid')
+  @ApiOperation({ summary: '双路混合检索 (ES 关键词 + RAG 向量 + RRF 融合 + Rerank 重排)' })
+  @ApiOkResponse({ type: HybridSearchResponseDto })
+  @ApiResult({ type: HybridSearchResponseDto })
+  async hybridSearch(
+    @Body() dto: HybridSearchDto,
+    @AuthUser() user: IAuthUser,
+  ): Promise<HybridSearchResponseDto> {
+    return this.hybridSearchService.search(dto, user)
+  }
+
+  @Post('chat')
+  @ApiOperation({ summary: '知识库智能助手问答 (RAG 检索增强生成，带精准来源溯源)' })
+  @ApiOkResponse({ type: DocumentChatResponseDto })
+  @ApiResult({ type: DocumentChatResponseDto })
+  async chat(
+    @Body() dto: DocumentChatDto,
+    @AuthUser() user: IAuthUser,
+  ): Promise<DocumentChatResponseDto> {
+    return this.chatService.chat(dto, user)
   }
 
   @Post(':code/submit')

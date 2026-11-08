@@ -386,52 +386,60 @@ export class DocumentService {
       throw new BadRequestException('草稿状态文档暂不支持向量化，请先提交审核')
     }
 
-    // 1. 同步更新主表向量化状态为 processing
+    // 1. 同步更新主表向量化状态为 processing 并立即保存
     document.vectorStatus = VectorStatusEnum.PROCESSING
     document.updateBy = user.uid
     const savedDoc = await this.docRepo.save(document)
 
-    // 2. 尝试从 MongoDB 获取正文或构建切片
-    let textContent = ''
-    try {
-      textContent = await this.docContentService.getContentByCode(code)
-    }
-    catch {
-      textContent = `文档《${savedDoc.title}》已发布，准备进入向量化知识加工。`
-    }
+    // 2. 彻底异步派发衍生索引流水线 (通过 setImmediate 脱离当前 HTTP 执行上下文)
+    setImmediate(async () => {
+      try {
+        let textContent = ''
+        try {
+          textContent = await this.docContentService.getContentByCode(code)
+        }
+        catch {
+          textContent = `文档《${savedDoc.title}》已发布，准备进入向量化知识加工。`
+        }
 
-    const chunks = [
-      {
-        chunkIndex: 0,
-        content: textContent ? textContent.slice(0, 2000) : `文档《${savedDoc.title}》已发布，准备进入向量化知识加工。`,
-        headingPath: '第一章 发布正文',
-        scope: savedDoc.scope || 'PUBLIC',
-        visibleDeptIds: savedDoc.visibleDeptIds || [],
-      },
-    ]
+        const chunks = [
+          {
+            chunkIndex: 0,
+            content: textContent ? textContent.slice(0, 2000) : `文档《${savedDoc.title}》已发布，准备进入向量化知识加工。`,
+            headingPath: '第一章 发布正文',
+            scope: savedDoc.scope || 'PUBLIC',
+            visibleDeptIds: savedDoc.visibleDeptIds || [],
+          },
+        ]
 
-    // 3. 重置初始化衍生索引任务表 (VECTOR, ES, GRAPH)
-    await this.indexTaskService.initTasks(savedDoc.docCode, chunks.length)
+        // 3. 重置初始化衍生索引任务表 (VECTOR, ES, GRAPH)
+        await this.indexTaskService.initTasks(savedDoc.docCode, chunks.length)
 
-    // 4. 派发消息至 RabbitMQ 向量通道与 ES 全文通道
-    await Promise.all([
-      this.docPublisher.sendVectorIndexTask({
-        docCode: savedDoc.docCode,
-        docId: savedDoc.id,
-        title: savedDoc.title,
-        fileType: savedDoc.fileType,
-        chunks,
-      }),
-      this.docPublisher.sendEsIndexTask({
-        docCode: savedDoc.docCode,
-        docId: savedDoc.id,
-        title: savedDoc.title,
-        fileType: savedDoc.fileType,
-        chunks,
-      }),
-    ])
+        // 4. 派发消息至 RabbitMQ 向量通道与 ES 全文通道
+        await Promise.all([
+          this.docPublisher.sendVectorIndexTask({
+            docCode: savedDoc.docCode,
+            docId: savedDoc.id,
+            title: savedDoc.title,
+            fileType: savedDoc.fileType,
+            chunks,
+          }),
+          this.docPublisher.sendEsIndexTask({
+            docCode: savedDoc.docCode,
+            docId: savedDoc.id,
+            title: savedDoc.title,
+            fileType: savedDoc.fileType,
+            chunks,
+          }),
+        ])
 
-    this.logger.log(`[DocumentService] 已成功向消息总线派发重新向量化任务: ${code}`)
+        this.logger.log(`[DocumentService] 已成功向消息总线异步派发重新向量化任务: ${code}`)
+      }
+      catch (err: any) {
+        this.logger.error(`[DocumentService] 重新向量化异步派发失败: ${err?.message || err}`)
+      }
+    })
+
     return savedDoc
   }
 }

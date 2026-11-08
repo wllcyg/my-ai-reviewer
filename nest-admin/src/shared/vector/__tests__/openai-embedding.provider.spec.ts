@@ -19,6 +19,11 @@ describe('OpenAiEmbeddingProvider', () => {
         vectorizeIndex: 'word-embeddings',
         embeddingProvider: 'openai',
         vectorStoreProvider: 'memory',
+        rerankApiKey: '',
+        rerankModel: '',
+        rerankBaseUrl: '',
+        rerankProvider: 'local',
+        chatModel: '',
       },
       mockFallback,
     )
@@ -42,6 +47,11 @@ describe('OpenAiEmbeddingProvider', () => {
         vectorizeIndex: 'word-embeddings',
         embeddingProvider: 'openai',
         vectorStoreProvider: 'memory',
+        rerankApiKey: '',
+        rerankModel: '',
+        rerankBaseUrl: '',
+        rerankProvider: 'local',
+        chatModel: '',
       },
       mockFallback,
     )

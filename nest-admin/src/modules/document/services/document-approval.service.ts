@@ -14,6 +14,7 @@ import {
   ApprovalNodeTypeEnum,
   DocumentStatusEnum,
   ReviewStatusEnum,
+  VectorStatusEnum,
 } from '../document.constant'
 import { DocumentEntity } from '../document.entity'
 import { AuditDocumentDto } from '../dto/audit-document.dto'
@@ -175,6 +176,7 @@ export class DocumentApprovalService {
       if (isApprove) {
         document.status = DocumentStatusEnum.PUBLISHED
         document.reviewStatus = ReviewStatusEnum.APPROVED
+        document.vectorStatus = VectorStatusEnum.PROCESSING
       }
       else {
         // 驳回则退回草稿状态供修改
@@ -207,7 +209,7 @@ export class DocumentApprovalService {
       `文档 [${code}] 审核完成: ${dto.action}, 操作者: ${user.uid}`,
     )
 
-    // 审核通过后，异步触发多路衍生索引任务与 RabbitMQ 向量化管道（不阻塞 HTTP 响应）
+    // 审核通过后，彻底异步触发多路衍生索引任务与 RabbitMQ 向量化管道（不阻塞 HTTP 响应）
     if (dto.action === 'APPROVE') {
       const runPipeline = async () => {
         // 1. 初始化三路索引任务记录 (Vector, ES, Graph)
@@ -241,8 +243,12 @@ export class DocumentApprovalService {
         ])
       }
 
-      runPipeline().catch((err) => {
-        this.logger.error(`[MQ 异常] 文档 ${code} 异步索引流水线触发失败: ${err.message}`)
+      // 🌟 使用 setImmediate 彻底脱离当前 HTTP 执行上下文与微任务栈
+      // 确保当前接口立即将 200 OK 冲刷 (flush) 给客户端，耗时耗资源的 MQ 派发完全在后台宏任务中执行
+      setImmediate(() => {
+        runPipeline().catch((err) => {
+          this.logger.error(`[MQ 异常] 文档 ${code} 异步索引流水线触发失败: ${err.message}`)
+        })
       })
     }
 

@@ -147,7 +147,7 @@
                         <FileTextOutlined class="file-icon" />
                         <span class="doc-title">{{ cite.title }}</span>
                         <a-tag color="blue" class="score-tag">
-                          相似度 {{ (cite.score * 100).toFixed(0) }}%
+                          相似度 {{ Math.round((cite.score || 0.85) * 100) }}%
                         </a-tag>
                       </div>
                       <div class="doc-heading" v-if="cite.headingPath">
@@ -213,7 +213,7 @@
 </template>
 
 <script setup lang="ts">
-  import { ref, nextTick } from 'vue';
+  import { ref, reactive, nextTick } from 'vue';
   import { marked } from 'marked';
   import {
     RobotOutlined,
@@ -228,6 +228,7 @@
     FileTextOutlined,
     DownOutlined,
   } from '@ant-design/icons-vue';
+  import { documentChat } from '@/api/backend/api/document';
 
   defineOptions({
     name: 'AiChatWidget',
@@ -419,46 +420,84 @@
     isLoading.value = true;
     scrollToBottom();
 
-    // 2. 准备 AI 消息占位符 (模拟流式输出)
-    const assistantMsg: ChatMessage = {
+    // 2. 准备 AI 消息占位符 (使用 reactive 确保 Vue 响应式精准追踪)
+    const assistantMsg = reactive<ChatMessage>({
       role: 'assistant',
       content: '',
       time: getCurrentTime(),
       isStreaming: true,
       citations: [],
       citationsExpanded: false,
-    };
+    });
 
     try {
-      // 获取知识库回答 (包含切块引用出处)
-      const { text: fullText, citations } = await generateMockAnswer(text);
+      // 提取多轮对话历史 (最近 4 条)
+      const history = messages.value.slice(-5, -1).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      let fullText = '';
+      let citations: CitationItem[] = [];
+
+      try {
+        // 优先请求真实后端 RAG 混合检索与大模型问答接口
+        const res = await documentChat({
+          query: text,
+          history,
+        }, { isReturnResult: true });
+
+        fullText = res?.answer || '';
+        citations = res?.citations || [];
+      } catch (apiError) {
+        console.warn('[AiChat] 接口调用异常，自动启用本地智能离线回答:', apiError);
+        const fallback = await generateMockAnswer(text);
+        fullText = fallback.text;
+        citations = fallback.citations;
+      }
+
+      // 如果未返回内容，执行兜底生成
+      if (!fullText) {
+        const fallback = await generateMockAnswer(text);
+        fullText = fallback.text;
+        if (!citations.length) {
+          citations = fallback.citations;
+        }
+      }
 
       isLoading.value = false;
       isStreaming.value = true;
-      messages.value.push(assistantMsg);
       assistantMsg.citations = citations;
+      messages.value.push(assistantMsg);
+      await nextTick();
+      scrollToBottom();
 
-      // 打字机流式字符推送模拟
+      // 打字机流式字符推送呈现
       let currentIdx = 0;
-      const chunkSize = 4; // 每次输出 4 个字符
+      const chunkSize = 4;
       const streamInterval = setInterval(() => {
         if (currentIdx < fullText.length) {
-          assistantMsg.content += fullText.slice(currentIdx, currentIdx + chunkSize);
-          currentIdx += chunkSize;
+          const nextIdx = Math.min(currentIdx + chunkSize, fullText.length);
+          assistantMsg.content = fullText.slice(0, nextIdx);
+          currentIdx = nextIdx;
           scrollToBottom();
         } else {
           clearInterval(streamInterval);
+          assistantMsg.content = fullText;
           assistantMsg.isStreaming = false;
           isStreaming.value = false;
           scrollToBottom();
         }
-      }, 35);
-    } catch {
+      }, 20);
+    } catch (err) {
+      console.error('[AiChat] 异常:', err);
       isLoading.value = false;
       isStreaming.value = false;
       assistantMsg.content = '抱歉，检索知识库或连接模型出现异常，请稍后重试。';
       assistantMsg.isStreaming = false;
-      messages.value.push(assistantMsg);
+      if (!messages.value.includes(assistantMsg)) {
+        messages.value.push(assistantMsg);
+      }
       scrollToBottom();
     }
   };

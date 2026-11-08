@@ -14,6 +14,15 @@ export const VectorConfig = registerAs(vectorRegToken, () => {
   const embeddingProvider = env('EMBEDDING_PROVIDER') || (apiToken ? 'cloudflare' : 'mock')
   const vectorStoreProvider = env('VECTOR_STORE_PROVIDER') || (apiToken ? 'vectorize' : 'memory')
 
+  // Rerank 重排模型配置
+  const rerankApiKey = env('RERANK_API_KEY') || apiToken
+  const rerankModel = env('RERANK_MODEL') || (accountId ? '@cf/baai/bge-reranker-base' : 'BAAI/bge-reranker-v2-m3')
+  const rerankBaseUrl = env('RERANK_BASE_URL') || (accountId ? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${rerankModel}` : '')
+  const rerankProvider = env('RERANK_PROVIDER') || (rerankApiKey ? 'model' : 'local')
+
+  // Chat 大模型配置
+  const chatModel = env('CLOUDFLARE_CHAT_MODEL') || '@cf/meta/llama-3.1-8b-instruct'
+
   return {
     accountId,
     apiToken,
@@ -23,6 +32,11 @@ export const VectorConfig = registerAs(vectorRegToken, () => {
     vectorizeIndex,
     embeddingProvider,
     vectorStoreProvider,
+    rerankApiKey,
+    rerankModel,
+    rerankBaseUrl,
+    rerankProvider,
+    chatModel,
   }
 })
 

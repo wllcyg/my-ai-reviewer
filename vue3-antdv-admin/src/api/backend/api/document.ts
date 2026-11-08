@@ -245,4 +245,40 @@ export async function documentReVector(code: string, options?: RequestOptions) {
   });
 }
 
+export interface ChatHistoryItem {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface DocumentChatParams {
+  query: string;
+  history?: ChatHistoryItem[];
+  docCode?: string;
+  category?: string;
+}
+
+export interface CitationItem {
+  docCode: string;
+  title: string;
+  headingPath?: string;
+  score: number;
+  snippet: string;
+}
+
+export interface DocumentChatResult {
+  answer: string;
+  citations: CitationItem[];
+  costMs: number;
+}
+
+/** 知识库智能助手问答 POST /api/documents/chat */
+export async function documentChat(data: DocumentChatParams, options?: RequestOptions) {
+  return request<DocumentChatResult>('/api/documents/chat', {
+    method: 'POST',
+    data,
+    ...(options || {}),
+  });
+}
+
+
 
